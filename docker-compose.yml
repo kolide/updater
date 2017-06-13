@@ -1,0 +1,45 @@
+version: "2"
+services:
+  server:
+    image: kolide/notary:latest
+    networks:
+      - mdb
+      - sig
+    entrypoint: /usr/bin/env sh
+    command: -c "./migrations/migrate.sh && notary-server -config=fixtures/server-config.json"
+    depends_on:
+      - mysql
+      - signer
+    ports:
+      - "8080"
+      - "4443:4443"
+  signer:
+    image: kolide/notary-signer:latest
+    networks:
+      mdb:
+      sig:
+        aliases:
+          - notarysigner
+    entrypoint: /usr/bin/env sh
+    command: -c "./migrations/migrate.sh && notary-signer -config=fixtures/signer-config.json"
+    depends_on:
+      - mysql
+  mysql:
+    networks:
+      - mdb
+    volumes:
+      - ./tools/notary/mysql:/docker-entrypoint-initdb.d
+      - notary_data:/var/lib/mysql
+    image: kolide/notary-db:latest
+    environment:
+      - TERM=dumb
+      - MYSQL_ALLOW_EMPTY_PASSWORD="true"
+    command: mysqld --innodb_file_per_table
+volumes:
+  notary_data:
+    external: false
+networks:
+  mdb:
+    external: false
+  sig:
+    external: false

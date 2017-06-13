@@ -14,3 +14,4 @@
 .glide/
 
 vendor/
+bindata.go

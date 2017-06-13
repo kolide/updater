@@ -22,10 +22,11 @@ a tagged build happens:
 1. It builds an install structure based on the instructions in the manifest file.  This
 would potentially include file permissions, directory structures, symlinks, and
 additional instructions such as whether or not to overwrite certain files,
-or to run migrations. It makes sense to build platform specific packages using
-the appropriate tools such dpkg or rpm to perform this task.
+or to run migrations. The packager will build an installer using go-bindata to pack
+up all the distributable files, and embed it in a generated go program that does the
+install.
 
-2. It copies the package to the appropriate location in could storage. This location
+2. It copies the installer package to the appropriate location in cloud storage. This location
 will use the following format.
 ```
 <top level bucket>/<globally unique name>/<platform>/<version>
@@ -45,5 +46,6 @@ example, if the current release is `N` then `N + 1, N + 2 ...` will be installed
 until there are no more releases.
 
 2. The release package will be downloaded from cloud storage and validated using
-Notary.  If the validation passes, Updater will install the package and perform
+Notary.  If the validation passes, Updater will invoke installer which will install
+files, create directories etc and perform
 whatever restarts are necessary to pick up the changes.
