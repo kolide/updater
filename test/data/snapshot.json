@@ -1,0 +1,30 @@
+{
+  "signed": {
+    "_type": "Snapshot",
+    "expires": "2020-06-11T14:32:32.161365749-05:00",
+    "meta": {
+      "root": {
+        "hashes": {
+          "sha256": "hmw3Q5satzmtz87gsrOkM3uCmXsRZfradwTLiFrJxgo=",
+          "sha512": "EU+fVRkpw9n1UIzx1LCE8uhZEPya9sMG27QA/6vMOXn7jamJ710C9q0C6B3TwOVaSJcZMMA9CT9mMs5d6hCpjQ=="
+        },
+        "length": 2357
+      },
+      "targets": {
+        "hashes": {
+          "sha256": "nwg+cF2+A+YbfL9x02jY4DTBTExBH/lE/ErlOF1l07Y=",
+          "sha512": "GGye6UL/7r+qzZg+YRwTfHtoshhipiFpGX8JJGuU51H9PiioZGwEwaySGzJHoscM+NWmr9wDytrD2TilvbvWbw=="
+        },
+        "length": 727
+      }
+    },
+    "version": 4
+  },
+  "signatures": [
+    {
+      "keyid": "cf5d1ca7177c947066404459dcdbfdfed1b684e7cd00d89ed7e513f108df3982",
+      "method": "ecdsa",
+      "sig": "Pqth0PIvWkYWfgZ1kRVhfa920AAtoujVQePy/HvP9hCS7vGMwrlWX+doDQxiU8Wtdk8WpIgJpYNxui2rF4rNEw=="
+    }
+  ]
+}

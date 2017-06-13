@@ -5,4 +5,4 @@ generate:
 	go-bindata -o test/bindata.go -pkg test test/data/
 
 test: generate
-	go test github.com/kolide/updater
+	go test -v github.com/kolide/updater/tuf

@@ -1,4 +1,4 @@
-package updater
+package tuf
 
 import (
 	"time"
@@ -33,22 +33,56 @@ const (
 	hashSHA512 hashingMethod = "sha512"
 )
 
-// Root is the root role
+// Root is the root role. It indicates
+// which keys are authorized for all top-level roles, including the root
+// role itself.
 type Root struct {
 	Signed     SignedRoot  `json:"signed"`
 	Signatures []Signature `json:"signatures"`
 }
 
+// SignedRoot signed contents of the root role
 type SignedRoot struct {
 	Type               string        `json:"_type"`
 	ConsistentSnapshot bool          `json:"consistent_snapshot"`
 	Expires            time.Time     `json:"expires"`
 	Keys               map[keyID]Key `json:"keys"`
-	Roles              map[role]Role
-	Version            int `json:"version"`
+	Roles              map[role]Role `json:"roles"`
+	Version            int           `json:"version"`
 }
 
-// Targets represents TUF role of the same name
+// Snapshot is the snapshot role. It lists the version
+// numbers of all metadata on the repository, excluding timestamp.json and
+// mirrors.json.
+type Snapshot struct {
+	Signed     SignedSnapshot `json:"signed"`
+	Signatures []Signature    `json:"signatures"`
+}
+
+// SignedSnapshot is the signed portion of the snapshot
+type SignedSnapshot struct {
+	Type    string                     `json:"_type"`
+	Expires time.Time                  `json:"expires"`
+	Version int                        `json:"version"`
+	Meta    map[role]FileIntegrityMeta `json:"meta"`
+}
+
+// Timestamp role indicates the latest versions of other files and is frequently resigned to limit the
+// amount of time a client can be kept unaware of interference with obtaining updates.
+type Timestamp struct {
+	Signed     SignedTimestamp `json:"signed"`
+	Signatures []Signature     `json:"signatures"`
+}
+
+// SignedTimestamp signed portion of timestamp role.
+type SignedTimestamp struct {
+	Type    string                     `json:"_type"`
+	Expires time.Time                  `json:"expires"`
+	Version int                        `json:"version"`
+	Meta    map[role]FileIntegrityMeta `json:"meta"`
+}
+
+// Targets represents TUF role of the same name.
 // See https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt
 type Targets struct {
 	Signed     TargetSigned `json:"signed"`
@@ -57,11 +91,11 @@ type Targets struct {
 
 // TargetSigned specifics of the Targets
 type TargetSigned struct {
-	Type        string                `json:"_type"`
-	Delegations Delegations           `json:"delegations"`
-	Expires     time.Time             `json:"expires"`
-	Targets     map[targetPath]Target `json:"targets"`
-	Version     int                   `json:"version"`
+	Type        string                           `json:"_type"`
+	Delegations Delegations                      `json:"delegations"`
+	Expires     time.Time                        `json:"expires"`
+	Targets     map[targetPath]FileIntegrityMeta `json:"targets"`
+	Version     int                              `json:"version"`
 }
 
 // Signature information to validate digital signatures
@@ -71,8 +105,9 @@ type Signature struct {
 	Value         string `json:"sig"`
 }
 
-// Target signing information
-type Target struct {
+// FileIntegrityMeta hashes and length of a file based resource to help ensure
+// the binary footprint of the file hasn't been tampered with
+type FileIntegrityMeta struct {
 	Hashes map[hashingMethod]string `json:"hashes"`
 	Length int                      `json:"length"`
 }

@@ -1,4 +1,4 @@
-package updater
+package tuf
 
 import (
 	"bytes"
@@ -69,4 +69,76 @@ func TestRootJson(t *testing.T) {
 	assert.Equal(t, "db897a1fb0c62fb8e8a43c5fdd9fd5fbe2c1581b675046a64ff1138902ecdcd7", sig.KeyID)
 	assert.Equal(t, methodECDSA, sig.SigningMethod)
 	assert.Equal(t, "9ibr3RQubULaF8maMuFbxX3s6dhlOzC7f8lgQ5m9YZpsFBwKLdrmT4Gm96cFQSMml0FkKXGHgabRGA0efsroXA==", sig.Value)
+}
+
+func TestSnapshotJson(t *testing.T) {
+	buff, err := test.Asset("test/data/snapshot.json")
+	require.Nil(t, err)
+	var snapshot Snapshot
+	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&snapshot)
+	require.Nil(t, err)
+	require.Len(t, snapshot.Signatures, 1)
+	sig := snapshot.Signatures[0]
+	assert.Equal(t, "cf5d1ca7177c947066404459dcdbfdfed1b684e7cd00d89ed7e513f108df3982", sig.KeyID)
+	assert.Equal(t, methodECDSA, sig.SigningMethod)
+	assert.Equal(t, "Pqth0PIvWkYWfgZ1kRVhfa920AAtoujVQePy/HvP9hCS7vGMwrlWX+doDQxiU8Wtdk8WpIgJpYNxui2rF4rNEw==", sig.Value)
+	signed := snapshot.Signed
+	tt := []struct {
+		present bool
+		role    role
+		sha256  string
+		sha512  string
+		length  int
+	}{
+		{true, roleRoot, `hmw3Q5sat`, `EU+fVRkpw9n1UIzx1`, 2357},
+		{true, roleTargets, `nwg+cF2+A+Ybf`, `GGye6UL/7r+qz`, 727},
+		{false, roleSnapshot, "", "", 0},
+		{false, roleTimestamp, "", "", 0},
+	}
+	for _, ts := range tt {
+		meta, ok := signed.Meta[ts.role]
+		assert.Equal(t, ok, ts.present)
+		if ok {
+			assert.Contains(t, meta.Hashes[hashSHA256], ts.sha256)
+			assert.Contains(t, meta.Hashes[hashSHA512], ts.sha512)
+			assert.Equal(t, ts.length, meta.Length)
+		}
+	}
+	assert.Equal(t, 4, signed.Version)
+}
+
+func TestTimestampJson(t *testing.T) {
+	buff, err := test.Asset("test/data/timestamp.json")
+	require.Nil(t, err)
+	var ts Timestamp
+	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&ts)
+	require.Nil(t, err)
+	require.Len(t, ts.Signatures, 1)
+	sig := ts.Signatures[0]
+	assert.Equal(t, "1b52d9751b119e2567dcc3ad68a8f99ccff2ba727d354c74173338133aeb3f87", sig.KeyID)
+	assert.Equal(t, methodECDSA, sig.SigningMethod)
+	assert.Equal(t, "92b83fCK0Ozy6y5SUzzBEVeWvcQjf8MwK0nbKu6nZ3NKwOEcW1nn1ZKkwNihn9CePvCZaVlTMnltDoN9/W6ByA==", sig.Value)
+	signed := ts.Signed
+	tt := []struct {
+		present bool
+		role    role
+		sha256  string
+		sha512  string
+		length  int
+	}{
+		{false, roleRoot, "", "", 0},
+		{false, roleTargets, "", "", 0},
+		{true, roleSnapshot, `14/Mhpey56v+ADoOpo9mTun`, `6WwFGKoNRKGv+fMfjOnTXmGv2/vzQHwYGmN`, 688},
+		{false, roleTimestamp, "", "", 0},
+	}
+	for _, ts := range tt {
+		meta, ok := signed.Meta[ts.role]
+		assert.Equal(t, ok, ts.present)
+		if ok {
+			assert.Contains(t, meta.Hashes[hashSHA256], ts.sha256)
+			assert.Contains(t, meta.Hashes[hashSHA512], ts.sha512)
+			assert.Equal(t, ts.length, meta.Length)
+		}
+	}
+	assert.Equal(t, 3, signed.Version)
 }
