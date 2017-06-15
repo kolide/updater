@@ -1,5 +1,22 @@
 package tuf
 
+import (
+	"net/url"
+	"os"
+	"regexp"
+
+	"github.com/pkg/errors"
+)
+
+const (
+	tufURLScheme  = "https"
+	tumAPIPattern = `/v2/%s/_trust/tuf/%s.json`
+	healthzPath   = `/_notary_server/health`
+	roleRegex     = `^root$|^[1-9]*[0-9]+\.root$|^snapshot$|^timestamp$|^targets$`
+)
+
+var errNotFound = errors.New("remote resource does not exist")
+
 type repo interface {
 	root(opts ...func() interface{}) (*Root, error)
 	snapshot() (*Snapshot, error)
@@ -7,21 +24,72 @@ type repo interface {
 	timestamp() (*Timestamp, error)
 }
 
-type persistantRepo interface {
-	repo
-	save() error
+type remoteRepo interface {
+	ping() error
 }
 
 type localRepo struct {
+	repoPath string
 }
 
-type remoteRepo struct {
+type notaryRepo struct {
+	url        *url.URL
+	skipVerify bool
+	gun        string
 }
 
-func newLocalRepo(repoPath string) *localRepo {
+func newLocalRepo(repoPath string) (*localRepo, error) {
+	err := validatePath(repoPath)
+	if err != nil {
+		return nil, errors.Wrap(err, "new tuf repo")
+	}
+	repo := localRepo{
+		repoPath: repoPath,
+	}
+
+	return &repo, nil
+}
+
+func newNotaryRepo(baseURL, gun string, skipVerify bool) (*notaryRepo, error) {
+	var (
+		repo notaryRepo
+		err  error
+	)
+	repo.skipVerify = skipVerify
+	repo.url, err = validateURL(baseURL)
+	repo.gun = gun
+	if err != nil {
+		return nil, errors.Wrap(err, "new tuf remote repo")
+	}
+	return &repo, nil
+}
+
+func validateURL(repoURL string) (*url.URL, error) {
+	u, err := url.Parse(repoURL)
+	if err != nil {
+		return nil, errors.Wrap(err, "tuf remote repo url validation failed")
+	}
+	if u.Scheme != tufURLScheme {
+		return nil, errors.Errorf("tuf url scheme must be %q", tufURLScheme)
+	}
+	return u, nil
+}
+
+// path must exist and be a directory, or a symlink to a directory
+func validatePath(repoPath string) error {
+	fi, err := os.Stat(repoPath)
+	if os.IsNotExist(err) {
+		return errors.Wrap(err, "tuf repo path validation failed")
+	}
+	if !fi.IsDir() {
+		return errors.Errorf("tuf repo path %q must be a directory", repoPath)
+	}
 	return nil
 }
 
-func newRemoteRepo(baseURL string) *remoteRepo {
+func validateRole(r role) error {
+	if !regexp.MustCompile(roleRegex).MatchString(string(r)) {
+		return errors.Errorf("%q is not a valid role", r)
+	}
 	return nil
 }

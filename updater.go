@@ -32,6 +32,7 @@ const (
 // Updater handles software updates for an application
 type Updater struct {
 	ticker              *time.Ticker
+	done                chan struct{}
 	settings            tuf.Settings
 	checkFrequency      time.Duration
 	notificationHandler NotificationHandler
@@ -63,14 +64,13 @@ const minimumCheckFrequency = 10 * time.Minute
 // ErrCheckFrequency caused by supplying a check frequency that was too small.
 var ErrCheckFrequency = fmt.Errorf("Frequency value must be %q or greater", minimumCheckFrequency)
 
-// ErrPackageDoesNotExit the package file does not exist
-var ErrPackageDoesNotExit = fmt.Errorf("package file does not exist")
+// ErrPackageDoesNotExist the package file does not exist
+var ErrPackageDoesNotExist = fmt.Errorf("package file does not exist")
 
 // New creates a new updater. By default the updater will check for updates every hour
 // but this may be changed by passing Frequency as an option.  The minimum
 // frequency is 10 minutes.  Anything less than that will cause an error.
-// Supply the WantNotfications option to get data on the state up update operations for
-// logging.
+// Supply the WantNotfications option to get logging information about updates.
 func New(settings tuf.Settings, opts ...func() interface{}) (*Updater, error) {
 	updater := Updater{
 		checkFrequency: defaultCheckFrequency,
@@ -109,7 +109,8 @@ func WantNotfications(hnd NotificationHandler) func() interface{} {
 // Start begins checking for updates.
 func (u *Updater) Start() {
 	u.ticker = time.NewTicker(u.checkFrequency)
-	go updater(u.settings, u.ticker.C, u.notificationHandler)
+	u.done = make(chan struct{})
+	go updater(u.settings, u.ticker.C, u.done, u.notificationHandler)
 }
 
 // Stop will disable update checks
@@ -117,11 +118,17 @@ func (u *Updater) Stop() {
 	if u.ticker != nil {
 		u.ticker.Stop()
 	}
+	if u.done != nil {
+		u.done <- struct{}{}
+	}
 }
 
-func updater(settings tuf.Settings, ticker <-chan time.Time, notifications NotificationHandler) {
-	for _ = range ticker {
+func updater(settings tuf.Settings, ticker <-chan time.Time, done <-chan struct{}, notifications NotificationHandler) {
+	select {
+	case <-ticker:
 		update(settings, notifications)
+	case <-done:
+		return
 	}
 }
 
@@ -134,7 +141,8 @@ func update(settings tuf.Settings, notifications NotificationHandler) {
 	}()
 
 	events.push(InfoType, "start check for updates")
-	// get pending updates
+	// get pending updates, the validity of package signatures in the updates
+	// is checked before they are returned.
 	updates, err := tuf.GetStagedPaths(&settings)
 	if err != nil {
 		events.push(ErrorType, "Error getting updates %q", err)
@@ -174,7 +182,7 @@ func update(settings tuf.Settings, notifications NotificationHandler) {
 func applyRollback(updatePackagePath string) error {
 	_, err := os.Stat(updatePackagePath)
 	if os.IsNotExist(err) {
-		return ErrPackageDoesNotExit
+		return ErrPackageDoesNotExist
 	}
 	cmd := exec.Command(updatePackagePath, "-rollback")
 	return cmd.Run()
@@ -186,7 +194,7 @@ func applyUpdate(updatePackagePath string) error {
 	// it could update the agent and restart it
 	_, err := os.Stat(updatePackagePath)
 	if os.IsNotExist(err) {
-		return ErrPackageDoesNotExit
+		return ErrPackageDoesNotExist
 	}
 	if err != nil {
 		return errors.Wrap(err, "checking for package existance")
