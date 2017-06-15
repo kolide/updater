@@ -100,7 +100,7 @@ func Frequency(duration time.Duration) func() interface{} {
 }
 
 // WantNotfications pass a function that will collect information about updates.
-func WantNotfications(hnd NotificationHandler) func() interface{} {
+func WantNotifications(hnd NotificationHandler) func() interface{} {
 	return func() interface{} {
 		return hnd
 	}

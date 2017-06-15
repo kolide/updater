@@ -20,7 +20,7 @@ func TestNewOptions(t *testing.T) {
 
 	u, err = New(tuf.Settings{},
 		Frequency(601*time.Second),
-		WantNotfications(func(evt Events) {}),
+		WantNotifications(func(evt Events) {}),
 	)
 	assert.Nil(t, err)
 	require.NotNil(t, u)
