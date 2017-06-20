@@ -15,7 +15,7 @@ func restart(cmd exec.Cmd) error {
 	cmd.Stderr = os.Stderr
 	err := cmd.Start()
 	if err != nil {
-		return errors.Wrap(err, "restaring process")
+		return errors.Wrap(err, "restarting process")
 	}
 	parent := syscall.Getppid()
 	syscall.Kill(parent, syscall.SIGTERM)
