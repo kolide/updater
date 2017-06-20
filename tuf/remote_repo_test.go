@@ -75,9 +75,10 @@ func TestGetRemoteRole(t *testing.T) {
 
 		baseURL, _ := url.Parse(svr.URL)
 		r := notaryRepo{
-			gun:        "kolide/agent/darwin",
-			url:        baseURL,
-			skipVerify: true,
+			gun:             "kolide/agent/darwin",
+			url:             baseURL,
+			skipVerify:      true,
+			maxResponseSize: defaultMaxResponseSize,
 		}
 
 		var intf interface{}
@@ -101,6 +102,33 @@ func TestGetRemoteRole(t *testing.T) {
 	}
 }
 
+func TestTheReadSizeLimitsAreEnforced(t *testing.T) {
+	svr := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+
+		buff, err := test.Asset("test/data/snapshot.json")
+		require.Nil(t, err)
+		w.Write(buff)
+	}))
+	defer svr.Close()
+
+	baseURL, _ := url.Parse(svr.URL)
+	r := notaryRepo{
+		gun:             "kolide/agent/darwin",
+		url:             baseURL,
+		skipVerify:      true,
+		maxResponseSize: defaultMaxResponseSize,
+	}
+	// it should fail if the expected size is smaller the remote response
+	_, err := r.snapshot(expectedSize(902))
+	require.NotNil(t, err)
+	assert.EqualError(t, err, "remote response size exceeds expected")
+	// it should succeed if the expected size is the same as the actual size of
+	// the remote response
+	_, err = r.snapshot(expectedSize(903))
+	require.Nil(t, err)
+
+}
+
 func TestGetVersionRoot(t *testing.T) {
 	svr := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Regexp(t, regexp.MustCompile(`1.root.json$`), r.RequestURI)
@@ -112,9 +140,10 @@ func TestGetVersionRoot(t *testing.T) {
 
 	baseURL, _ := url.Parse(svr.URL)
 	r := notaryRepo{
-		gun:        "kolide/agent/darwin",
-		url:        baseURL,
-		skipVerify: true,
+		gun:             "kolide/agent/darwin",
+		url:             baseURL,
+		skipVerify:      true,
+		maxResponseSize: defaultMaxResponseSize,
 	}
 
 	root, err := r.root(version(1))
@@ -135,9 +164,10 @@ func TestGetRoot(t *testing.T) {
 
 	baseURL, _ := url.Parse(svr.URL)
 	r := notaryRepo{
-		gun:        "kolide/agent/darwin",
-		url:        baseURL,
-		skipVerify: true,
+		gun:             "kolide/agent/darwin",
+		url:             baseURL,
+		skipVerify:      true,
+		maxResponseSize: defaultMaxResponseSize,
 	}
 
 	root, err := r.root()
@@ -158,9 +188,10 @@ func TestGetTargets(t *testing.T) {
 
 	baseURL, _ := url.Parse(svr.URL)
 	r := notaryRepo{
-		gun:        "kolide/agent/darwin",
-		url:        baseURL,
-		skipVerify: true,
+		gun:             "kolide/agent/darwin",
+		url:             baseURL,
+		skipVerify:      true,
+		maxResponseSize: defaultMaxResponseSize,
 	}
 
 	targets, err := r.targets()
@@ -180,9 +211,10 @@ func TestGetTimestamp(t *testing.T) {
 
 	baseURL, _ := url.Parse(svr.URL)
 	r := notaryRepo{
-		gun:        "kolide/agent/darwin",
-		url:        baseURL,
-		skipVerify: true,
+		gun:             "kolide/agent/darwin",
+		url:             baseURL,
+		skipVerify:      true,
+		maxResponseSize: defaultMaxResponseSize,
 	}
 
 	timestamp, err := r.timestamp()
@@ -202,9 +234,10 @@ func TestGetSnapshot(t *testing.T) {
 
 	baseURL, _ := url.Parse(svr.URL)
 	r := notaryRepo{
-		gun:        "kolide/agent/darwin",
-		url:        baseURL,
-		skipVerify: true,
+		gun:             "kolide/agent/darwin",
+		url:             baseURL,
+		skipVerify:      true,
+		maxResponseSize: defaultMaxResponseSize,
 	}
 
 	snapshot, err := r.snapshot()
@@ -222,9 +255,10 @@ func Test404ErrorPassesThrough(t *testing.T) {
 
 	baseURL, _ := url.Parse(svr.URL)
 	r := notaryRepo{
-		gun:        "kolide/agent/darwin",
-		url:        baseURL,
-		skipVerify: true,
+		gun:             "kolide/agent/darwin",
+		url:             baseURL,
+		skipVerify:      true,
+		maxResponseSize: defaultMaxResponseSize,
 	}
 
 	_, err := r.snapshot()
@@ -235,15 +269,15 @@ func Test404ErrorPassesThrough(t *testing.T) {
 func TestPingSuccess(t *testing.T) {
 	svr := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Regexp(t, regexp.MustCompile(`/_notary_server/health$`), r.RequestURI)
-		//w.WriteHeader(http.StatusNotFound)
 	}))
 	defer svr.Close()
 
 	baseURL, _ := url.Parse(svr.URL)
 	r := notaryRepo{
-		gun:        "kolide/agent/darwin",
-		url:        baseURL,
-		skipVerify: true,
+		gun:             "kolide/agent/darwin",
+		url:             baseURL,
+		skipVerify:      true,
+		maxResponseSize: defaultMaxResponseSize,
 	}
 
 	err := r.ping()
@@ -258,9 +292,10 @@ func TestPingFail(t *testing.T) {
 
 	baseURL, _ := url.Parse(svr.URL)
 	r := notaryRepo{
-		gun:        "kolide/agent/darwin",
-		url:        baseURL,
-		skipVerify: true,
+		gun:             "kolide/agent/darwin",
+		url:             baseURL,
+		skipVerify:      true,
+		maxResponseSize: defaultMaxResponseSize,
 	}
 
 	err := r.ping()

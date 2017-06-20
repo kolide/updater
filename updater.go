@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path"
 	"time"
 
 	"github.com/kolide/updater/tuf"
@@ -29,6 +30,8 @@ const (
 	ErrorType
 )
 
+const backupSubDir = "backup"
+
 // Updater handles software updates for an application
 type Updater struct {
 	ticker              *time.Ticker
@@ -36,6 +39,7 @@ type Updater struct {
 	settings            tuf.Settings
 	checkFrequency      time.Duration
 	notificationHandler NotificationHandler
+	cmd                 exec.Cmd
 }
 
 // Event information about an update
@@ -67,13 +71,19 @@ var ErrCheckFrequency = fmt.Errorf("Frequency value must be %q or greater", mini
 // ErrPackageDoesNotExist the package file does not exist
 var ErrPackageDoesNotExist = fmt.Errorf("package file does not exist")
 
-// New creates a new updater. By default the updater will check for updates every hour
+// New creates a new updater. exeCmd is the required cmd for the executable file
+// hosting the updater package. By default the updater will check for updates every hour
 // but this may be changed by passing Frequency as an option.  The minimum
 // frequency is 10 minutes.  Anything less than that will cause an error.
 // Supply the WantNotfications option to get logging information about updates.
-func New(settings tuf.Settings, opts ...func() interface{}) (*Updater, error) {
+func New(settings tuf.Settings, exeCmd exec.Cmd, opts ...func() interface{}) (*Updater, error) {
+	err := settings.Verify()
+	if err != nil {
+		return nil, errors.Wrap(err, "creating updater")
+	}
 	updater := Updater{
 		checkFrequency: defaultCheckFrequency,
+		cmd:            exeCmd,
 	}
 	for _, opt := range opts {
 		switch t := opt().(type) {
@@ -99,7 +109,7 @@ func Frequency(duration time.Duration) func() interface{} {
 	}
 }
 
-// WantNotfications pass a function that will collect information about updates.
+// WantNotifications is used to pass a function that will collect information about updates.
 func WantNotifications(hnd NotificationHandler) func() interface{} {
 	return func() interface{} {
 		return hnd
@@ -110,7 +120,7 @@ func WantNotifications(hnd NotificationHandler) func() interface{} {
 func (u *Updater) Start() {
 	u.ticker = time.NewTicker(u.checkFrequency)
 	u.done = make(chan struct{})
-	go updater(u.settings, u.ticker.C, u.done, u.notificationHandler)
+	go updater(u.settings, u.cmd, u.ticker.C, u.done, u.notificationHandler)
 }
 
 // Stop will disable update checks
@@ -123,16 +133,16 @@ func (u *Updater) Stop() {
 	}
 }
 
-func updater(settings tuf.Settings, ticker <-chan time.Time, done <-chan struct{}, notifications NotificationHandler) {
+func updater(settings tuf.Settings, cmd exec.Cmd, ticker <-chan time.Time, done <-chan struct{}, notifications NotificationHandler) {
 	select {
 	case <-ticker:
-		update(settings, notifications)
+		update(settings, cmd, notifications)
 	case <-done:
 		return
 	}
 }
 
-func update(settings tuf.Settings, notifications NotificationHandler) {
+func update(settings tuf.Settings, cmd exec.Cmd, notifications NotificationHandler) {
 	var events Events
 	defer func() {
 		if notifications != nil {
@@ -142,13 +152,20 @@ func update(settings tuf.Settings, notifications NotificationHandler) {
 
 	events.push(InfoType, "start check for updates")
 	// get pending updates, the validity of package signatures in the updates
-	// is checked before they are returned.
+	// are checked before they are returned.
 	updates, err := tuf.GetStagedPaths(&settings)
 	if err != nil {
 		events.push(ErrorType, "Error getting updates %q", err)
-		if notifications != nil {
-			return
-		}
+		return
+	}
+	// Prepare to install by copying the current install into a backup directory.
+	// We expect the install program to write it's changes into the install directory. If
+	// something fails, we replace the modified install directory with it's original
+	// contents.
+	backupDirectory, err := backup(settings.InstallDir, settings.StagingPath)
+	if err != nil {
+		events.push(ErrorType, "Could not create application backup")
+		return
 	}
 	var successfulUpdates []string
 	for _, updatePackagePath := range updates {
@@ -156,7 +173,6 @@ func update(settings tuf.Settings, notifications NotificationHandler) {
 		err = applyUpdate(updatePackagePath)
 		if err != nil {
 			events.push(ErrorType, "applying update error %q", err)
-			break
 		}
 		events.push(InfoType, "updated %q", updatePackagePath)
 		successfulUpdates = append(successfulUpdates, updatePackagePath)
@@ -164,28 +180,43 @@ func update(settings tuf.Settings, notifications NotificationHandler) {
 
 	if len(successfulUpdates) < len(updates) {
 		events.push(ErrorType, "%d of %d updates succeeded, rolling back", len(successfulUpdates), len(updates))
-		// rollback in reverse order
-		for i := len(successfulUpdates) - 1; i >= 0; i-- {
-			err = applyRollback(successfulUpdates[i])
-			if err != nil {
-				events.push(ErrorType, "rollback failed %q", successfulUpdates[i])
-			}
-			events.push(InfoType, "rollback succeeded %q", successfulUpdates[i])
+		err = rollback(backupDirectory, settings.InstallDir)
+		if err != nil {
+			events.push(ErrorType, "rollback failed")
 		}
+		return
 	}
 	events.push(InfoType, "updates complete")
 	if len(updates) > 0 && len(updates) == len(successfulUpdates) {
-		restart()
+		restart(cmd)
 	}
 }
 
-func applyRollback(updatePackagePath string) error {
-	_, err := os.Stat(updatePackagePath)
-	if os.IsNotExist(err) {
-		return ErrPackageDoesNotExist
+// Backs up contents of the install directory, and symlinks in the
+// install directory tree are not followed.
+func backup(installPath, stagingPath string) (string, error) {
+	backupSubDir := path.Join(stagingPath, backupSubDir, tuf.GetTag())
+	err := os.MkdirAll(backupSubDir, 0744)
+	if err != nil {
+		return "", errors.Wrap(err, "creating backup directory")
 	}
-	cmd := exec.Command(updatePackagePath, "-rollback")
-	return cmd.Run()
+	err = copyRecursive(installPath, backupSubDir)
+	if err != nil {
+		return "", errors.Wrap(err, "backing up installation files")
+	}
+	return backupSubDir, nil
+}
+
+func rollback(backupPath, installPath string) error {
+	err := os.RemoveAll(installPath)
+	if err != nil {
+		return errors.Wrap(err, "removing bad install")
+	}
+	err = os.Rename(backupPath, installPath)
+	if err != nil {
+		return errors.Wrap(err, "replacing old install")
+	}
+	return nil
 }
 
 func applyUpdate(updatePackagePath string) error {

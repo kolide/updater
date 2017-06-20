@@ -40,7 +40,7 @@ func TestTargetsJson(t *testing.T) {
 	require.Len(t, targets.Signatures, 1)
 	sig := targets.Signatures[0]
 	assert.Equal(t, methodECDSA, sig.SigningMethod)
-	assert.Equal(t, "d24c36bfeb612b6900df04a71a4a8e5a3c9847d3acbc2d27a3ef820895e5d42c", sig.KeyID)
+	assert.Equal(t, keyID("d24c36bfeb612b6900df04a71a4a8e5a3c9847d3acbc2d27a3ef820895e5d42c"), sig.KeyID)
 	assert.Equal(t, "XZQ3BgSgdKzdpKd8sDhrfm/PvD4zof2vQNly9/16hgGCU5X882t7Hq5OcdX/Ov6zVKxC0J2LpM+vMIx4HSjGjA==", sig.Value)
 }
 
@@ -66,7 +66,7 @@ func TestRootJson(t *testing.T) {
 	}
 	require.Len(t, root.Signatures, 1)
 	sig := root.Signatures[0]
-	assert.Equal(t, "db897a1fb0c62fb8e8a43c5fdd9fd5fbe2c1581b675046a64ff1138902ecdcd7", sig.KeyID)
+	assert.Equal(t, keyID("db897a1fb0c62fb8e8a43c5fdd9fd5fbe2c1581b675046a64ff1138902ecdcd7"), sig.KeyID)
 	assert.Equal(t, methodECDSA, sig.SigningMethod)
 	assert.Equal(t, "9ibr3RQubULaF8maMuFbxX3s6dhlOzC7f8lgQ5m9YZpsFBwKLdrmT4Gm96cFQSMml0FkKXGHgabRGA0efsroXA==", sig.Value)
 }
@@ -79,7 +79,7 @@ func TestSnapshotJson(t *testing.T) {
 	require.Nil(t, err)
 	require.Len(t, snapshot.Signatures, 1)
 	sig := snapshot.Signatures[0]
-	assert.Equal(t, "cf5d1ca7177c947066404459dcdbfdfed1b684e7cd00d89ed7e513f108df3982", sig.KeyID)
+	assert.Equal(t, keyID("cf5d1ca7177c947066404459dcdbfdfed1b684e7cd00d89ed7e513f108df3982"), sig.KeyID)
 	assert.Equal(t, methodECDSA, sig.SigningMethod)
 	assert.Equal(t, "Pqth0PIvWkYWfgZ1kRVhfa920AAtoujVQePy/HvP9hCS7vGMwrlWX+doDQxiU8Wtdk8WpIgJpYNxui2rF4rNEw==", sig.Value)
 	signed := snapshot.Signed
@@ -115,7 +115,7 @@ func TestTimestampJson(t *testing.T) {
 	require.Nil(t, err)
 	require.Len(t, ts.Signatures, 1)
 	sig := ts.Signatures[0]
-	assert.Equal(t, "1b52d9751b119e2567dcc3ad68a8f99ccff2ba727d354c74173338133aeb3f87", sig.KeyID)
+	assert.Equal(t, keyID("1b52d9751b119e2567dcc3ad68a8f99ccff2ba727d354c74173338133aeb3f87"), sig.KeyID)
 	assert.Equal(t, methodECDSA, sig.SigningMethod)
 	assert.Equal(t, "92b83fCK0Ozy6y5SUzzBEVeWvcQjf8MwK0nbKu6nZ3NKwOEcW1nn1ZKkwNihn9CePvCZaVlTMnltDoN9/W6ByA==", sig.Value)
 	signed := ts.Signed

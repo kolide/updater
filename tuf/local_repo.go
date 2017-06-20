@@ -27,7 +27,7 @@ func (r *localRepo) timestamp() (*Timestamp, error) {
 	return &ts, nil
 }
 
-func (r *localRepo) snapshot() (*Snapshot, error) {
+func (r *localRepo) snapshot(opts ...func() interface{}) (*Snapshot, error) {
 	var ss Snapshot
 	err := r.getRole(roleSnapshot, &ss)
 	if err != nil {
@@ -43,6 +43,18 @@ func (r *localRepo) targets(opts ...func() interface{}) (*Targets, error) {
 		return nil, errors.Wrap(err, "getting local targets role")
 	}
 	return &ts, nil
+}
+
+// save persists role information, r is the role type, and
+// data is the class containing the role information
+func (r *localRepo) save(roleName role, data interface{}) error {
+	isRoleCorrect(roleName, data)
+	f, err := os.OpenFile(path.Join(r.repoPath, fmt.Sprintf("%s.json", roleName)), os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return errors.Wrap(err, "opening role file for writing")
+	}
+	defer f.Close()
+	return json.NewEncoder(f).Encode(data)
 }
 
 func (r *localRepo) getRole(name role, val interface{}) error {
