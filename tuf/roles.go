@@ -11,11 +11,11 @@ import (
 	"github.com/pkg/errors"
 )
 
-// targetPath is the path to the target. Mirror host + targetPath is the
+// targetNameType is the path to the target. Mirror host + targetNameType is the
 // download location of the file. For example if the mirror is https://releases.kolide.co
-// and the targetPath is kolide/agent/linux/installer then you'd download
+// and the targetNameType is kolide/agent/linux/installer then you'd download
 // https://releases.kolide.co/kolide/agent/linux/installer
-type targetPath string
+type targetNameType string
 type keyID string
 type hashingMethod string
 type role string
@@ -147,11 +147,11 @@ type Targets struct {
 
 // SignedTarget specifics of the Targets
 type SignedTarget struct {
-	Type        string                           `json:"_type"`
-	Delegations Delegations                      `json:"delegations"`
-	Expires     time.Time                        `json:"expires"`
-	Targets     map[targetPath]FileIntegrityMeta `json:"targets"`
-	Version     int                              `json:"version"`
+	Type        string                               `json:"_type"`
+	Delegations Delegations                          `json:"delegations"`
+	Expires     time.Time                            `json:"expires"`
+	Targets     map[targetNameType]FileIntegrityMeta `json:"targets"`
+	Version     int                                  `json:"version"`
 }
 
 func (sr SignedTarget) canonicalJSON() ([]byte, error) {

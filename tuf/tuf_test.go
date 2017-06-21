@@ -25,10 +25,10 @@ func TestSettingsVerification(t *testing.T) {
 
 	s.GUN = "kolide/agent/linux"
 	s.LocalRepoPath, _ = os.Getwd()
-	s.InstallDir, _ = os.Getwd()
 	s.StagingPath, _ = os.Getwd()
 	s.MirrorURL = "https://mirror.com"
 	s.RemoteRepoBaseURL = "https://notary.com"
+	s.TargetName = "sometarget"
 	err = s.Verify()
 	assert.Nil(t, err)
 
@@ -199,11 +199,9 @@ func TestGetStagedPathsNoUpdates(t *testing.T) {
 		InsecureSkipVerify: true,
 		GUN:                "kolide/agent/linux",
 	}
-	paths, err := GetStagedPaths(&settings)
+	stagedPath, err := GetStagedPath(&settings)
 	require.Nil(t, err)
-	require.NotNil(t, paths)
-	// no updates
-	assert.Len(t, paths, 0)
+	require.Empty(t, stagedPath)
 }
 
 func TestGetStagedPathsWithUpdates(t *testing.T) {
@@ -220,11 +218,11 @@ func TestGetStagedPathsWithUpdates(t *testing.T) {
 		RemoteRepoBaseURL:  notary.URL,
 		InsecureSkipVerify: true,
 		GUN:                "kolide/agent/linux",
+		TargetName:         "somedir/target.0",
 	}
-	paths, err := GetStagedPaths(&settings)
+	stagedPath, err := GetStagedPath(&settings)
 	require.Nil(t, err)
-	require.NotNil(t, paths)
-	assert.Len(t, paths, 2)
+	require.NotEmpty(t, stagedPath)
 	// make sure all the files we are supposed to create are there
 	files := []string{
 		path.Join(localRepoPath, "root.json"),
@@ -232,7 +230,7 @@ func TestGetStagedPathsWithUpdates(t *testing.T) {
 		path.Join(localRepoPath, "snapshot.json"),
 		path.Join(localRepoPath, "targets.json"),
 	}
-	files = append(files, paths...)
+
 	for _, f := range files {
 		fs, err := os.Stat(f)
 		require.False(t, os.IsNotExist(err))
@@ -255,11 +253,10 @@ func TestWithKeyRotation(t *testing.T) {
 		InsecureSkipVerify: true,
 		GUN:                "kolide/agent/linux",
 	}
-	paths, err := GetStagedPaths(&settings)
+	stagedPath, err := GetStagedPath(&settings)
 	require.Nil(t, err)
-	require.NotNil(t, paths)
-	// no paths, since keys were rotated, but no targets were changed
-	assert.Len(t, paths, 0)
+	require.Empty(t, stagedPath)
+
 	// make sure all the files we are supposed to create are there
 	files := []string{
 		path.Join(localRepoPath, "root.json"),
@@ -267,7 +264,7 @@ func TestWithKeyRotation(t *testing.T) {
 		path.Join(localRepoPath, "snapshot.json"),
 		path.Join(localRepoPath, "targets.json"),
 	}
-	files = append(files, paths...)
+
 	for _, f := range files {
 		fs, err := os.Stat(f)
 		require.False(t, os.IsNotExist(err))

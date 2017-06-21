@@ -41,8 +41,9 @@ type Settings struct {
 	// MaxResponseSize the maximum size of a get response.  Defaults to
 	// 5 MB
 	MaxResponseSize int64
-	// InstallDir the location of the program
-	InstallDir string
+	// TargetName is the name of the target to retreive. Typically this would
+	// denote a version, like 'v2' or 'latest'
+	TargetName targetNameType
 }
 
 // Verify performs some preliminary checks on parameter.
@@ -55,12 +56,11 @@ func (s *Settings) Verify() error {
 	if err != nil {
 		return errors.Wrap(err, "verifying staging path")
 	}
-	err = validatePath(s.InstallDir)
-	if err != nil {
-		return errors.Wrap(err, "verifying install dir")
-	}
 	if s.GUN == "" {
 		return errors.New("GUN can't be empty")
+	}
+	if s.TargetName == "" {
+		return errors.New("TargetName can't be empty")
 	}
 	_, err = validateURL(s.RemoteRepoBaseURL)
 	if err != nil {
@@ -73,67 +73,66 @@ func (s *Settings) Verify() error {
 	return nil
 }
 
-// GetStagedPaths returns a list of paths of any packages that need to be updated.
+// GetStagedPath returns a the staging path of a target if it needs to be updated. The
+// target that will be checked is defined in settings.
 // These packages are validated and obtained according to The Update Framework
 // Spec https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt
 // Section 5.1 The Client Application
-func GetStagedPaths(settings *Settings) ([]string, error) {
+func GetStagedPath(settings *Settings) (string, error) {
 	if settings.MaxResponseSize == 0 {
 		settings.MaxResponseSize = defaultMaxResponseSize
 	}
 	// check to see if Notary server is available
 	notary, err := newNotaryRepo(settings.RemoteRepoBaseURL, settings.GUN, settings.MaxResponseSize, settings.InsecureSkipVerify)
 	if err != nil {
-		return nil, errors.Wrap(err, "creating notary client")
+		return "", errors.Wrap(err, "creating notary client")
 	}
 	err = notary.ping()
 	if err != nil {
-		return nil, errors.Wrap(err, "pinging notary server failed")
+		return "", errors.Wrap(err, "pinging notary server failed")
 	}
 	localRepo, err := newLocalRepo(settings.LocalRepoPath)
 	if err != nil {
-		return nil, errors.New("creating local tuf role repo")
+		return "", errors.New("creating local tuf role repo")
 	}
 	// store intermediate state until all validation succeeds, then write
 	// changed roles to non-volitile storage
 	state := newRepoMan(localRepo, notary, settings)
-	err = state.refresh()
+	stagedPath, err := state.refresh()
 	if err != nil {
-		return nil, errors.Wrap(err, "getting paths for staged packages")
+		return "", errors.Wrap(err, "getting paths for staged packages")
 	}
 	// IF all operations are successful, we write new TUF repository to
 	// persistent storage.  This will be our baseline state for the next check
 	// for updates.
-	tag := GetTag()
+	tag := getTag()
 	err = state.save(tag)
 	if err != nil {
-		return nil, errors.Wrap(err, "unable to save tuf repo state")
+		return "", errors.Wrap(err, "unable to save tuf repo state")
 	}
-	return state.stagedPaths, nil
+	return stagedPath, nil
 }
 
-// GetTag a timestamp based moniker
-func GetTag() string {
+// getTag a timestamp based moniker
+func getTag() string {
 	return time.Now().Format(time.Now().Format(filetimeFormat))
 }
 
 type repoMan struct {
-	settings    *Settings
-	repo        persistentRepo
-	notary      remoteRepo
-	root        *Root
-	timestamp   *Timestamp
-	snapshot    *Snapshot
-	targets     *Targets
-	stagedPaths []string
+	settings  *Settings
+	repo      persistentRepo
+	notary    remoteRepo
+	root      *Root
+	timestamp *Timestamp
+	snapshot  *Snapshot
+	targets   *Targets
 }
 
 func newRepoMan(repo persistentRepo, notary remoteRepo, settings *Settings) *repoMan {
 	return &repoMan{
-		settings:    settings,
-		repo:        repo,
-		notary:      notary,
-		stagedPaths: []string{},
+		settings: settings,
+		repo:     repo,
+		notary:   notary,
 	}
 }
 
@@ -177,12 +176,10 @@ func (rs *repoMan) save(backupTag string) (err error) {
 }
 
 func (rs *repoMan) backupRoles(tag string) error {
-
 	roles := []role{roleRoot, roleTargets, roleSnapshot, roleTimestamp}
 	for _, r := range roles {
 		source := path.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.json", r))
 		destination := path.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.%s.json", r, tag))
-
 		err := os.Rename(source, destination)
 		if err != nil {
 			return errors.Wrap(err, "backing up role")
@@ -232,29 +229,29 @@ func (rs *repoMan) saveRole(r role, js []byte) error {
 // that we expect that we do not used consistent snapshots and delegations are
 // not supported because for our purposes, both are unnecessary.
 // See https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt
-func (rs *repoMan) refresh() error {
+func (rs *repoMan) refresh() (string, error) {
 	root, err := rs.refreshRoot()
 	if err != nil {
-		return errors.Wrap(err, "refreshing root")
+		return "", errors.Wrap(err, "refreshing root")
 	}
 	// cache the current root
 	rs.root = root
 	timestamp, err := rs.refreshTimestamp(root)
 	if err != nil {
-		return errors.Wrap(err, "refreshing timestamp")
+		return "", errors.Wrap(err, "refreshing timestamp")
 	}
 	rs.timestamp = timestamp
 	snapshot, err := rs.refreshSnapshot(root, timestamp)
 	if err != nil {
-		return errors.Wrap(err, "refreshing snapshot")
+		return "", errors.Wrap(err, "refreshing snapshot")
 	}
 	rs.snapshot = snapshot
-	targets, err := rs.refreshTargets(root, snapshot)
+	targets, stagingPath, err := rs.refreshTargets(root, snapshot)
 	if err != nil {
-		return errors.Wrap(err, "refreshing targets")
+		return "", errors.Wrap(err, "refreshing targets")
 	}
 	rs.targets = targets
-	return nil
+	return stagingPath, nil
 }
 
 func (rs *repoMan) refreshRoot() (*Root, error) {
@@ -373,14 +370,14 @@ func (rs *repoMan) refreshSnapshot(root *Root, timestamp *Timestamp) (*Snapshot,
 	return current, nil
 }
 
-func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, error) {
+func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, string, error) {
 	previous, err := rs.repo.targets()
 	if err != nil {
-		return nil, errors.Wrap(err, "fetching local targets")
+		return nil, "", errors.Wrap(err, "fetching local targets")
 	}
 	fim, ok := snapshot.Signed.Meta[roleTargets]
 	if !ok {
-		return nil, errors.New("missing target metadata in snapshot")
+		return nil, "", errors.New("missing target metadata in snapshot")
 	}
 	var opts []func() interface{}
 	opts = append(opts, expectedSize(int64(fim.Length)))
@@ -394,32 +391,32 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, err
 	}
 	current, err := rs.notary.targets(opts...)
 	if err != nil {
-		return nil, errors.Wrap(err, "retrieving timestamp from notary")
+		return nil, "", errors.Wrap(err, "retrieving timestamp from notary")
 	}
 	keys := rs.getKeys(root, current.Signatures)
 	threshold := root.Signed.Roles[roleTargets].Threshold
 	err = rs.verifySignatures(current.Signed, keys, current.Signatures, threshold)
 	if err != nil {
-		return nil, errors.Wrap(err, "signature verification for targets failed")
+		return nil, "", errors.Wrap(err, "signature verification for targets failed")
 	}
 	if previous.Signed.Version > current.Signed.Version {
-		return nil, errors.New("previous target has a version later than the current target")
+		return nil, "", errors.New("previous target has a version later than the current target")
 	}
 	if time.Now().After(current.Signed.Expires) {
-		return nil, errors.New("current targets expired")
+		return nil, "", errors.New("current targets expired")
 	}
-	// we have new updates, collect them and return assign
-	// to repoman member variable
+
+	var stagedPath string
 	if current.Signed.Version > previous.Signed.Version {
-		err = rs.stageTargets(current.Signed.Targets)
+		stagedPath, err = rs.stageTarget(current.Signed.Targets)
 		if err != nil {
-			return nil, errors.Wrap(err, "staging targets")
+			return nil, "", errors.Wrap(err, "staging targets")
 		}
 	}
-	return current, nil
+	return current, stagedPath, nil
 }
 
-func (rs *repoMan) stageTargets(tgts map[targetPath]FileIntegrityMeta) error {
+func (rs *repoMan) stageTarget(tgts map[targetNameType]FileIntegrityMeta) (string, error) {
 	client := &http.Client{
 		Transport: &http.Transport{
 			TLSClientConfig: &tls.Config{
@@ -429,40 +426,43 @@ func (rs *repoMan) stageTargets(tgts map[targetPath]FileIntegrityMeta) error {
 		},
 		Timeout: 5 * time.Second,
 	}
-	for path, fim := range tgts {
-		err := rs.downloadTarget(client, path, &fim)
-		if err != nil {
-			return errors.Wrap(err, "downloading target")
-		}
+	fim, ok := tgts[rs.settings.TargetName]
+	if !ok {
+		return "", errors.Errorf("No such target %q in %q", rs.settings.TargetName, rs.settings.GUN)
 	}
-	return nil
+	stagePath, err := rs.downloadTarget(client, rs.settings.TargetName, &fim)
+	if err != nil {
+		return "", errors.Wrap(err, "downloading target")
+	}
+	return stagePath, nil
 }
 
 // download target from mirror, if it passes validation write it to staging and cache
 // the location where it was written
-func (rs *repoMan) downloadTarget(client *http.Client, target targetPath, fim *FileIntegrityMeta) error {
+func (rs *repoMan) downloadTarget(client *http.Client, target targetNameType, fim *FileIntegrityMeta) (string, error) {
 	// we expect our mirrored distribution targets to be located
 	// at https://mirror.com/gun/targetname
 	mirrorURL, err := url.Parse(fmt.Sprintf("%s/%s/%s", rs.settings.MirrorURL, rs.settings.GUN, target))
 	if err != nil {
-		return errors.Wrap(err, "building url to download target")
+		return "", errors.Wrap(err, "building url to download target")
 	}
 	resp, err := client.Get(mirrorURL.String())
 	if err != nil {
-		return errors.Wrap(err, "fetching target from mirror")
+		return "", errors.Wrap(err, "fetching target from mirror")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return errors.Errorf("get target returned %q", resp.Status)
+		return "", errors.Errorf("get target returned %q", resp.Status)
 	}
 	var buff bytes.Buffer
 	readFromMirror, err := io.Copy(&buff, resp.Body)
 	if err != nil {
-		errors.Wrap(err, "reading target from mirror")
+		return "", errors.Wrap(err, "reading target from mirror")
+
 	}
 	err = fim.verify(buff.Bytes(), readFromMirror)
 	if err != nil {
-		return errors.Wrap(err, "target verification failed")
+		return "", errors.Wrap(err, "target verification failed")
 	}
 	// our target is valid so write it to staging
 	stagingPath := path.Join(rs.settings.StagingPath, string(target))
@@ -472,29 +472,27 @@ func (rs *repoMan) downloadTarget(client *http.Client, target targetPath, fim *F
 	if os.IsNotExist(err) {
 		err = os.MkdirAll(fullDir, 0755)
 		if err != nil {
-			return errors.Wrap(err, "making staging directory")
+			return "", errors.Wrap(err, "making staging directory")
 		}
 	}
 	// if the path exists make sure it's a directory
 	if fs != nil && !fs.IsDir() {
-		return errors.Errorf("staging location %q is not a directory", fullDir)
+		return "", errors.Errorf("staging location %q is not a directory", fullDir)
 	}
-	// note the package file is an executable
-	out, err := os.OpenFile(stagingPath, os.O_CREATE|os.O_WRONLY, 0744)
+
+	out, err := os.OpenFile(stagingPath, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return errors.Wrap(err, "creating staging file")
+		return "", errors.Wrap(err, "creating staging file")
 	}
 	defer out.Close()
 	writtenToFile, err := io.Copy(out, &buff)
 	if err != nil {
-		return errors.Wrap(err, "writing target file to staging")
+		return "", errors.Wrap(err, "writing target file to staging")
 	}
 	if writtenToFile != readFromMirror {
-		return errors.Errorf("file write incomplete for %q", target)
+		return "", errors.Errorf("file write incomplete for %q", target)
 	}
-	// cache staged path
-	rs.stagedPaths = append(rs.stagedPaths, stagingPath)
-	return nil
+	return stagingPath, nil
 }
 
 func (rs *repoMan) verifySignatures(role marshaller, keys map[keyID]Key, sigs []Signature, threshold int) error {
