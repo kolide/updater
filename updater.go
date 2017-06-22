@@ -38,7 +38,7 @@ type Updater struct {
 type NotificationHandler func(stagingPath string, err error)
 
 const defaultCheckFrequency = 1 * time.Hour
-const minimumCheckFrequency = 10 * time.Minute
+const minimumCheckFrequency = 1 * time.Minute
 
 // ErrCheckFrequency caused by supplying a check frequency that was too small.
 var ErrCheckFrequency = fmt.Errorf("Frequency value must be %q or greater", minimumCheckFrequency)
@@ -59,7 +59,7 @@ func Frequency(duration time.Duration) func() interface{} {
 
 // New creates a new updater.  By default the updater will check for updates every hour
 // but this may be changed by passing Frequency as an option.  The minimum
-// frequency is 10 minutes.  Anything less than that will cause an error.
+// frequency is 1 minute.  Anything less than that will cause an error.
 // onUpdate is called when an update needs to be applied and where an application would
 // use the update.
 func New(settings tuf.Settings, onUpdate NotificationHandler, opts ...func() interface{}) (*Updater, error) {
@@ -70,6 +70,7 @@ func New(settings tuf.Settings, onUpdate NotificationHandler, opts ...func() int
 	updater := Updater{
 		checkFrequency:      defaultCheckFrequency,
 		notificationHandler: onUpdate,
+		settings:            settings,
 	}
 	for _, opt := range opts {
 		switch t := opt().(type) {
@@ -101,13 +102,16 @@ func (u *Updater) Stop() {
 }
 
 func updater(settings tuf.Settings, ticker <-chan time.Time, done <-chan struct{}, notifications NotificationHandler) {
-	select {
-	case <-ticker:
+	for {
+		// run right away
 		stagingPath, err := tuf.GetStagedPath(&settings)
 		if err != nil || stagingPath != "" {
 			notifications(stagingPath, err)
 		}
-	case <-done:
-		return
+		select {
+		case <-ticker:
+		case <-done:
+			return
+		}
 	}
 }

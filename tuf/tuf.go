@@ -446,7 +446,15 @@ func (rs *repoMan) downloadTarget(client *http.Client, target targetNameType, fi
 	if err != nil {
 		return "", errors.Wrap(err, "building url to download target")
 	}
-	resp, err := client.Get(mirrorURL.String())
+	request, err := http.NewRequest(http.MethodGet, mirrorURL.String(), nil)
+	if err != nil {
+		return "", errors.Wrap(err, "creating target request")
+	}
+	// Dissallow caching because if we are making this call, we know that the target
+	// has changed and we want to make sure we get the data from the mirror, not
+	// from cache.
+	request.Header.Add(cacheControl, cachePolicyNoStore)
+	resp, err := client.Do(request)
 	if err != nil {
 		return "", errors.Wrap(err, "fetching target from mirror")
 	}
@@ -460,6 +468,7 @@ func (rs *repoMan) downloadTarget(client *http.Client, target targetNameType, fi
 		return "", errors.Wrap(err, "reading target from mirror")
 
 	}
+
 	err = fim.verify(buff.Bytes(), readFromMirror)
 	if err != nil {
 		return "", errors.Wrap(err, "target verification failed")

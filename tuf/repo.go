@@ -14,6 +14,9 @@ const (
 	healthzPath            = `/_notary_server/health`
 	roleRegex              = `^root$|^[1-9]*[0-9]+\.root$|^snapshot$|^timestamp$|^targets$`
 	defaultMaxResponseSize = 5 * 1024 * 1024 // 5 Megabytes
+	// http headers
+	cacheControl       = "Cache-Control"
+	cachePolicyNoStore = "no-store"
 )
 
 var errNotFound = errors.New("remote resource does not exist")
