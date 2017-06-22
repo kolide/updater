@@ -21,15 +21,15 @@ func TestNewOptions(t *testing.T) {
 	}
 	onUpdate := func(stagingPath string, err error) {}
 
-	u, err := New(settings, onUpdate)
+	u, err := Start(settings, onUpdate)
 	require.Nil(t, err)
 	assert.Equal(t, defaultCheckFrequency, u.checkFrequency)
 
-	u, err = New(settings, onUpdate, WithFrequency(minimumCheckFrequency-time.Second))
+	u, err = Start(settings, onUpdate, WithFrequency(minimumCheckFrequency-time.Second))
 	assert.Equal(t, ErrCheckFrequency, err)
 	assert.Nil(t, u)
 
-	u, err = New(settings,
+	u, err = Start(settings,
 		onUpdate,
 		WithFrequency(minimumCheckFrequency+time.Second),
 	)

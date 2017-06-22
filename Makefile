@@ -9,4 +9,4 @@ generate:
 	go-bindata -o test/bindata.go -pkg test test/data test/kolide/...
 
 test: generate
-	go test -race -cover -v $(go list ./... | grep -v /vendor/)
+	go test -race -cover -v $(shell go list ./... | grep -v /vendor/)

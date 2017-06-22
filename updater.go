@@ -12,7 +12,6 @@ package updater
 
 import (
 	"fmt"
-	"os/exec"
 	"time"
 
 	"github.com/kolide/updater/tuf"
@@ -25,12 +24,10 @@ type Settings tuf.Settings
 
 // Updater handles software updates for an application
 type Updater struct {
-	ticker              *time.Ticker
-	done                chan struct{}
-	settings            Settings
+	settings            tuf.Settings
+	done                chan chan struct{}
 	checkFrequency      time.Duration
 	notificationHandler NotificationHandler
-	cmd                 exec.Cmd
 }
 
 // WithFrequency allows changing the frequency of update checks.
@@ -54,18 +51,23 @@ const (
 	minimumCheckFrequency = 1 * time.Minute
 )
 
-// ErrCheckFrequency caused by supplying a check frequency that was too small.
-var ErrCheckFrequency = fmt.Errorf("Frequency value must be %q or greater", minimumCheckFrequency)
+var (
+	// ErrCheckFrequency caused by supplying a check frequency that was too small.
+	ErrCheckFrequency = fmt.Errorf("frequency value must be %q or greater", minimumCheckFrequency)
 
-// ErrPackageDoesNotExist the package file does not exist
-var ErrPackageDoesNotExist = fmt.Errorf("package file does not exist")
+	// ErrPackageDoesNotExist the package file does not exist.
+	ErrPackageDoesNotExist = errors.New("package file does not exist")
+)
 
-// New creates a new updater.  By default the updater will check for updates every hour
+// Start creates a new updater. By default the updater will check for updates every hour
 // but this may be changed by passing Frequency as an option.  The minimum
 // frequency is 1 minute.  Anything less than that will cause an error.
 // onUpdate is called when an update needs to be applied and where an application would
 // use the update.
-func New(settings Settings, onUpdate NotificationHandler, opts ...Option) (*Updater, error) {
+func Start(settings Settings, onUpdate NotificationHandler, opts ...Option) (*Updater, error) {
+	if onUpdate == nil {
+		return nil, errors.New("updater started without a NotificationHandler")
+	}
 	err := settings.verify()
 	if err != nil {
 		return nil, errors.Wrap(err, "creating updater")
@@ -73,7 +75,7 @@ func New(settings Settings, onUpdate NotificationHandler, opts ...Option) (*Upda
 	updater := Updater{
 		checkFrequency:      defaultCheckFrequency,
 		notificationHandler: onUpdate,
-		settings:            settings,
+		settings:            tuf.Settings(settings),
 	}
 	for _, opt := range opts {
 		opt(&updater)
@@ -81,37 +83,28 @@ func New(settings Settings, onUpdate NotificationHandler, opts ...Option) (*Upda
 	if updater.checkFrequency < minimumCheckFrequency {
 		return nil, ErrCheckFrequency
 	}
+	go updater.loop()
 	return &updater, nil
 }
 
-// Start begins checking for updates.
-func (u *Updater) Start() {
-	u.ticker = time.NewTicker(u.checkFrequency)
-	u.done = make(chan struct{})
-	go updater(u.settings, u.ticker.C, u.done, u.notificationHandler)
-}
-
-// Stop will disable update checks
+// Stop will disables the update checker goroutine.
 func (u *Updater) Stop() {
-	if u.ticker != nil {
-		u.ticker.Stop()
-	}
-	if u.done != nil {
-		u.done <- struct{}{}
-	}
+	done := make(chan struct{})
+	u.done <- done
+	<-done
 }
 
-func updater(settings Settings, ticker <-chan time.Time, done <-chan struct{}, notifications NotificationHandler) {
-	tufSettings := tuf.Settings(settings)
+func (u *Updater) loop() {
+	ticker := time.NewTicker(u.checkFrequency).C
 	for {
-		// run right away
-		stagingPath, err := tuf.GetStagedPath(&tufSettings)
+		stagingPath, err := tuf.GetStagedPath(&u.settings)
 		if err != nil || stagingPath != "" {
-			notifications(stagingPath, err)
+			u.notificationHandler(stagingPath, err)
 		}
 		select {
 		case <-ticker:
-		case <-done:
+		case done := <-u.done:
+			close(done)
 			return
 		}
 	}
