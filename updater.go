@@ -37,8 +37,10 @@ type Updater struct {
 // target which is the hosting application's responsibility to deal with.
 type NotificationHandler func(stagingPath string, err error)
 
-const defaultCheckFrequency = 1 * time.Hour
-const minimumCheckFrequency = 1 * time.Minute
+const (
+	defaultCheckFrequency = 1 * time.Hour
+	minimumCheckFrequency = 1 * time.Minute
+)
 
 // ErrCheckFrequency caused by supplying a check frequency that was too small.
 var ErrCheckFrequency = fmt.Errorf("Frequency value must be %q or greater", minimumCheckFrequency)
