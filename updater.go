@@ -65,6 +65,9 @@ var (
 // onUpdate is called when an update needs to be applied and where an application would
 // use the update.
 func Start(settings Settings, onUpdate NotificationHandler, opts ...Option) (*Updater, error) {
+	if onUpdate == nil {
+		return nil, errors.New("updater started without a NotificationHandler")
+	}
 	err := settings.verify()
 	if err != nil {
 		return nil, errors.Wrap(err, "creating updater")
