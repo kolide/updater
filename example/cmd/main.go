@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/kolide/updater"
-	"github.com/kolide/updater/tuf"
 )
 
 func main() {
@@ -28,7 +27,7 @@ func main() {
 		flag.PrintDefaults()
 		os.Exit(0)
 	}
-	settings := tuf.Settings{
+	settings := updater.Settings{
 		LocalRepoPath:      path.Join(baseDir, "repo"),
 		RemoteRepoBaseURL:  "https://notary-server:4443",
 		StagingPath:        path.Join(baseDir, "staging"),

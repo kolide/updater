@@ -21,11 +21,13 @@ import (
 
 const backupSubDir = "backup"
 
+type Settings tuf.Settings
+
 // Updater handles software updates for an application
 type Updater struct {
 	ticker              *time.Ticker
 	done                chan struct{}
-	settings            tuf.Settings
+	settings            Settings
 	checkFrequency      time.Duration
 	notificationHandler NotificationHandler
 	cmd                 exec.Cmd
@@ -61,8 +63,8 @@ var ErrPackageDoesNotExist = fmt.Errorf("package file does not exist")
 // frequency is 1 minute.  Anything less than that will cause an error.
 // onUpdate is called when an update needs to be applied and where an application would
 // use the update.
-func New(settings tuf.Settings, onUpdate NotificationHandler, opts ...Option) (*Updater, error) {
-	err := settings.Verify()
+func New(settings Settings, onUpdate NotificationHandler, opts ...Option) (*Updater, error) {
+	err := settings.verify()
 	if err != nil {
 		return nil, errors.Wrap(err, "creating updater")
 	}
@@ -97,10 +99,11 @@ func (u *Updater) Stop() {
 	}
 }
 
-func updater(settings tuf.Settings, ticker <-chan time.Time, done <-chan struct{}, notifications NotificationHandler) {
+func updater(settings Settings, ticker <-chan time.Time, done <-chan struct{}, notifications NotificationHandler) {
+	tufSettings := tuf.Settings(settings)
 	for {
 		// run right away
-		stagingPath, err := tuf.GetStagedPath(&settings)
+		stagingPath, err := tuf.GetStagedPath(&tufSettings)
 		if err != nil || stagingPath != "" {
 			notifications(stagingPath, err)
 		}
@@ -110,4 +113,31 @@ func updater(settings tuf.Settings, ticker <-chan time.Time, done <-chan struct{
 			return
 		}
 	}
+}
+
+// Verify performs some preliminary checks on parameter.
+func (s *Settings) verify() error {
+	err := tuf.ValidatePath(s.LocalRepoPath)
+	if err != nil {
+		return errors.Wrap(err, "verifying local repo path")
+	}
+	err = tuf.ValidatePath(s.StagingPath)
+	if err != nil {
+		return errors.Wrap(err, "verifying staging path")
+	}
+	if s.GUN == "" {
+		return errors.New("GUN can't be empty")
+	}
+	if s.TargetName == "" {
+		return errors.New("TargetName can't be empty")
+	}
+	_, err = tuf.ValidateURL(s.RemoteRepoBaseURL)
+	if err != nil {
+		return errors.Wrap(err, "remote repo url validation")
+	}
+	_, err = tuf.ValidateURL(s.MirrorURL)
+	if err != nil {
+		return errors.Wrap(err, "mirror url validation")
+	}
+	return nil
 }

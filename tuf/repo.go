@@ -50,7 +50,7 @@ type notaryRepo struct {
 }
 
 func newLocalRepo(repoPath string) (*localRepo, error) {
-	err := validatePath(repoPath)
+	err := ValidatePath(repoPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "new tuf repo")
 	}
@@ -69,14 +69,14 @@ func newNotaryRepo(baseURL, gun string, maxResponseSize int64, skipVerify bool) 
 	repo.maxResponseSize = maxResponseSize
 	repo.skipVerify = skipVerify
 	repo.gun = gun
-	repo.url, err = validateURL(baseURL)
+	repo.url, err = ValidateURL(baseURL)
 	if err != nil {
 		return nil, errors.Wrap(err, "new tuf remote repo")
 	}
 	return &repo, nil
 }
 
-func validateURL(repoURL string) (*url.URL, error) {
+func ValidateURL(repoURL string) (*url.URL, error) {
 	u, err := url.Parse(repoURL)
 	if err != nil {
 		return nil, errors.Wrap(err, "tuf remote repo url validation failed")
@@ -88,7 +88,7 @@ func validateURL(repoURL string) (*url.URL, error) {
 }
 
 // path must exist and be a directory, or a symlink to a directory
-func validatePath(repoPath string) error {
+func ValidatePath(repoPath string) error {
 	fi, err := os.Stat(repoPath)
 	if os.IsNotExist(err) {
 		return errors.Wrap(err, "tuf repo path validation failed")
