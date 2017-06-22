@@ -1,0 +1,71 @@
+{
+  "signed": {
+    "_type": "Root",
+    "consistent_snapshot": false,
+    "expires": "2027-06-14T16:19:05.86333442-05:00",
+    "keys": {
+      "84b02b3bb67b6cee2243c8b6b53651d832c14feb9d1f6135b255d18a285a49c2": {
+        "keytype": "ecdsa-x509",
+        "keyval": {
+          "private": null,
+          "public": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCk1JSUJiekNDQVJTZ0F3SUJBZ0lSQVBGNHYySmV4VkJmYmgzMzFpaTFwTTB3Q2dZSUtvWkl6ajBFQXdJd0hURWIKTUJrR0ExVUVBeE1TYTI5c2FXUmxMMkZuWlc1MEwyeHBiblY0TUI0WERURTNNRFl4TmpJeE1UZzBOVm9YRFRJMwpNRFl4TkRJeE1UZzBOVm93SFRFYk1Ca0dBMVVFQXhNU2EyOXNhV1JsTDJGblpXNTBMMnhwYm5WNE1Ga3dFd1lICktvWkl6ajBDQVFZSUtvWkl6ajBEQVFjRFFnQUVCVytQLy9UNkpTNmJJcmJCR0VpK2I5WFQyRmZMMmJWa1FiRTkKWTdmUlFPRDhROVhGMmR5K05QVFhhZjNCNW1pYmtXSnBNVGQ0Y1YwNmtOMFUvQkYxcXFNMU1ETXdEZ1lEVlIwUApBUUgvQkFRREFnV2dNQk1HQTFVZEpRUU1NQW9HQ0NzR0FRVUZCd01ETUF3R0ExVWRFd0VCL3dRQ01BQXdDZ1lJCktvWkl6ajBFQXdJRFNRQXdSZ0loQU5xOXZndTQ1UFhXQ3hhWmRvSkhjN05sclAvVm5yUVRjbWRqVkFVRVF4WG4KQWlFQWpIeEN6RjlqVlZuUWNGUTExYU5acndVVEFTeEJVN0tHN3lDZzNzZmowQXc9Ci0tLS0tRU5EIENFUlRJRklDQVRFLS0tLS0K"
+        }
+      },
+      "bacd525eac2e9495f10d9543917f3a078ffbb2a982f4cd59f1c825f9dfec7e13": {
+        "keytype": "ecdsa",
+        "keyval": {
+          "private": null,
+          "public": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE7i7c7Fxfwg37EIrFDZlJ29zxQEsKXP+a5iP4Dui2J+CJzk7Ssd+1DXLZljuUb9fRmica/FLXdPSGhxzPwgyP8A=="
+        }
+      },
+      "cae7c918e084b954430deefd8d25acea34c97b58b1c16ce550e9014aa82b3a3a": {
+        "keytype": "ecdsa",
+        "keyval": {
+          "private": null,
+          "public": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEI+CjPK5PZwwzuzbN14VadPY32yHkLm/Ssizt/xvEm/G6xq6L4MTJl3CgVMKulFkE908lydSgKPUP8yaXObfTbg=="
+        }
+      },
+      "df9c78125f2fa08052253850f62930e3ca66dfc789ea77d6b04405b10289dd6e": {
+        "keytype": "ecdsa",
+        "keyval": {
+          "private": null,
+          "public": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEtTZDUH5sixrP10MxBSjdTn9IPFgcGWxnLFs5JW068kjoYeDJrQjVMdyGsd59PSNuJGrZmKjGKxI44Mr90+cJyw=="
+        }
+      }
+    },
+    "roles": {
+      "root": {
+        "keyids": [
+          "84b02b3bb67b6cee2243c8b6b53651d832c14feb9d1f6135b255d18a285a49c2"
+        ],
+        "threshold": 1
+      },
+      "snapshot": {
+        "keyids": [
+          "df9c78125f2fa08052253850f62930e3ca66dfc789ea77d6b04405b10289dd6e"
+        ],
+        "threshold": 1
+      },
+      "targets": {
+        "keyids": [
+          "cae7c918e084b954430deefd8d25acea34c97b58b1c16ce550e9014aa82b3a3a"
+        ],
+        "threshold": 1
+      },
+      "timestamp": {
+        "keyids": [
+          "bacd525eac2e9495f10d9543917f3a078ffbb2a982f4cd59f1c825f9dfec7e13"
+        ],
+        "threshold": 1
+      }
+    },
+    "version": 1
+  },
+  "signatures": [
+    {
+      "keyid": "84b02b3bb67b6cee2243c8b6b53651d832c14feb9d1f6135b255d18a285a49c2",
+      "method": "ecdsa",
+      "sig": "cqejcJEvs2gOcU984J0rWlhnEs5gx2m2U35tfUzWjAtQawUJwyZF/NPHEnWu7bPrxaEV11gyawLSlOgB9ZNPRA=="
+    }
+  ]
+}
