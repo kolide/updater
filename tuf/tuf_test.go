@@ -18,25 +18,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSettingsVerification(t *testing.T) {
-	var s Settings
-	err := s.Verify()
-	assert.NotNil(t, err)
-
-	s.GUN = "kolide/agent/linux"
-	s.LocalRepoPath, _ = os.Getwd()
-	s.StagingPath, _ = os.Getwd()
-	s.MirrorURL = "https://mirror.com"
-	s.RemoteRepoBaseURL = "https://notary.com"
-	s.TargetName = "sometarget"
-	err = s.Verify()
-	assert.Nil(t, err)
-
-	s.LocalRepoPath = ""
-	err = s.Verify()
-	assert.NotNil(t, err)
-
-}
 func TestURLValidation(t *testing.T) {
 	r, err := newNotaryRepo("https://foo.com/zip.json", "kolide/agent/linux", defaultMaxResponseSize, true)
 	require.Nil(t, err)
