@@ -31,6 +31,16 @@ type Updater struct {
 	cmd                 exec.Cmd
 }
 
+// WithFrequency allows changing the frequency of update checks.
+func WithFrequency(duration time.Duration) Option {
+	return func(u *Updater) {
+		u.checkFrequency = duration
+	}
+}
+
+// Option defines a way to provide optional arguments when creating a new Updater.
+type Option func(*Updater)
+
 // NotificationHandler gets called when the hosting application has a new version
 // of a target that it needs to deal with.  The hosting application will need to
 // check the err object, if err is nil the stagingPath will point to a validated
@@ -46,23 +56,12 @@ var ErrCheckFrequency = fmt.Errorf("Frequency value must be %q or greater", mini
 // ErrPackageDoesNotExist the package file does not exist
 var ErrPackageDoesNotExist = fmt.Errorf("package file does not exist")
 
-// Optional New Parameter(s)
-type updateDuration time.Duration
-
-// Frequency allows changing the frequency of update checks by passing
-// this method to update.New
-func Frequency(duration time.Duration) func() interface{} {
-	return func() interface{} {
-		return updateDuration(duration)
-	}
-}
-
 // New creates a new updater.  By default the updater will check for updates every hour
 // but this may be changed by passing Frequency as an option.  The minimum
 // frequency is 1 minute.  Anything less than that will cause an error.
 // onUpdate is called when an update needs to be applied and where an application would
 // use the update.
-func New(settings tuf.Settings, onUpdate NotificationHandler, opts ...func() interface{}) (*Updater, error) {
+func New(settings tuf.Settings, onUpdate NotificationHandler, opts ...Option) (*Updater, error) {
 	err := settings.Verify()
 	if err != nil {
 		return nil, errors.Wrap(err, "creating updater")
@@ -73,10 +72,7 @@ func New(settings tuf.Settings, onUpdate NotificationHandler, opts ...func() int
 		settings:            settings,
 	}
 	for _, opt := range opts {
-		switch t := opt().(type) {
-		case updateDuration:
-			updater.checkFrequency = time.Duration(t)
-		}
+		opt(&updater)
 	}
 	if updater.checkFrequency < minimumCheckFrequency {
 		return nil, ErrCheckFrequency

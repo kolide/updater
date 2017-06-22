@@ -43,7 +43,7 @@ func main() {
 			return
 		}
 		fmt.Printf("success: %q\n", stagingDir)
-	}, updater.Frequency(1*time.Minute))
+	}, updater.WithFrequency(1*time.Minute))
 	if err != nil {
 		fmt.Printf("could not create updater: %q", err)
 		os.Exit(1)
