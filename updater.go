@@ -11,7 +11,9 @@
 package updater
 
 import (
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/kolide/updater/tuf"
@@ -76,6 +78,7 @@ func Start(settings Settings, onUpdate NotificationHandler, opts ...Option) (*Up
 		checkFrequency:      defaultCheckFrequency,
 		notificationHandler: onUpdate,
 		settings:            tuf.Settings(settings),
+		done:                make(chan chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(&updater)
@@ -95,6 +98,18 @@ func (u *Updater) Stop() {
 }
 
 func (u *Updater) loop() {
+	if u.settings.Client == nil {
+		u.settings.Client = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: u.settings.InsecureSkipVerify,
+				},
+				TLSHandshakeTimeout: 5 * time.Second,
+			},
+			Timeout: 5 * time.Second,
+		}
+	}
+
 	ticker := time.NewTicker(u.checkFrequency).C
 	for {
 		stagingPath, err := tuf.GetStagedPath(&u.settings)
@@ -126,7 +141,7 @@ func (s *Settings) verify() error {
 	if s.TargetName == "" {
 		return errors.New("TargetName can't be empty")
 	}
-	_, err = tuf.ValidateURL(s.RemoteRepoBaseURL)
+	_, err = tuf.ValidateURL(s.NotaryURL)
 	if err != nil {
 		return errors.Wrap(err, "remote repo url validation")
 	}

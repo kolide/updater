@@ -1,6 +1,7 @@
 package tuf
 
 import (
+	"net/http"
 	"net/url"
 	"os"
 	"regexp"
@@ -47,6 +48,7 @@ type notaryRepo struct {
 	skipVerify      bool
 	gun             string
 	maxResponseSize int64
+	client          *http.Client
 }
 
 func newLocalRepo(repoPath string) (*localRepo, error) {
@@ -61,19 +63,20 @@ func newLocalRepo(repoPath string) (*localRepo, error) {
 	return &repo, nil
 }
 
-func newNotaryRepo(baseURL, gun string, maxResponseSize int64, skipVerify bool) (*notaryRepo, error) {
-	var (
-		repo notaryRepo
-		err  error
-	)
-	repo.maxResponseSize = maxResponseSize
-	repo.skipVerify = skipVerify
-	repo.gun = gun
-	repo.url, err = ValidateURL(baseURL)
-	if err != nil {
-		return nil, errors.Wrap(err, "new tuf remote repo")
+//(baseURL, gun string, maxResponseSize int64, skipVerify bool) (*notaryRepo, error) {
+func newNotaryRepo(settings *Settings) (*notaryRepo, error) {
+	r := &notaryRepo{
+		maxResponseSize: settings.MaxResponseSize,
+		skipVerify:      settings.InsecureSkipVerify,
+		gun:             settings.GUN,
+		client:          settings.Client,
 	}
-	return &repo, nil
+	var err error
+	r.url, err = ValidateURL(settings.NotaryURL)
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
 }
 
 func ValidateURL(repoURL string) (*url.URL, error) {

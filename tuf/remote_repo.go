@@ -4,13 +4,11 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"crypto/sha512"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"time"
 
 	"github.com/pkg/errors"
 )
@@ -111,8 +109,8 @@ func (r *notaryRepo) ping() error {
 		return errors.Wrap(err, "ping")
 	}
 	pingURL := r.url.ResolveReference(path).String()
-	client := r.getClient()
-	resp, err := client.Get(pingURL)
+
+	resp, err := r.client.Get(pingURL)
 	if err != nil {
 		return errors.Wrap(err, "ping")
 	}
@@ -121,18 +119,6 @@ func (r *notaryRepo) ping() error {
 		return errors.Errorf("notary ping failed with %q", resp.Status)
 	}
 	return nil
-}
-
-func (r *notaryRepo) getClient() *http.Client {
-	return &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: r.skipVerify,
-			},
-			TLSHandshakeTimeout: 5 * time.Second,
-		},
-		Timeout: 5 * time.Second,
-	}
 }
 
 func (r *notaryRepo) buildRoleURL(roleName role) (string, error) {
@@ -162,8 +148,8 @@ func (r *notaryRepo) getRole(roleName role, role interface{}, opts ...func() int
 	if err != nil {
 		return errors.Wrap(err, "getting remote role")
 	}
-	client := r.getClient()
-	resp, err := client.Get(roleURL)
+
+	resp, err := r.client.Get(roleURL)
 	if err != nil {
 		return errors.Wrap(err, "fetching role from remote repo")
 	}
