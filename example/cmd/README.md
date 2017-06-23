@@ -38,10 +38,10 @@ https://storage.googleapis.com/kolide_test_mirror/kolide/greeter/darwin/latest/m
 7. Create your local repository.  cd to the repository directory you defined in
 step 1 and run the following curl commands to get the necessary files from Notary.
   ``` bash
-  $ curl -k https://notary-server:4443/kolide/greeter/darwin/_trust/tuf/root.json > root.json
-  $ curl -k https://notary-server:4443/kolide/greeter/darwin/_trust/tuf/snapshot.json > snapshot.json
-  $ curl -k https://notary-server:4443/kolide/greeter/darwin/_trust/tuf/timestamp.json > timestamp.json
-  $ curl -k https://notary-server:4443/kolide/greeter/darwin/_trust/tuf/targets.json > targets.json
+  $ curl -k https://notary-server:4443/v2/kolide/greeter/darwin/_trust/tuf/root.json > root.json
+  $ curl -k https://notary-server:4443/v2/kolide/greeter/darwin/_trust/tuf/snapshot.json > snapshot.json
+  $ curl -k https://notary-server:4443/v2/kolide/greeter/darwin/_trust/tuf/timestamp.json > timestamp.json
+  $ curl -k https://notary-server:4443/v2/kolide/greeter/darwin/_trust/tuf/targets.json > targets.json
   ```
 8. Define your settings in the example program.
 
