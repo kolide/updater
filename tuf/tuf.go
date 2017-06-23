@@ -2,7 +2,6 @@ package tuf
 
 import (
 	"bytes"
-	"crypto/tls"
 	"fmt"
 	"io"
 	"net/http"
@@ -48,42 +47,17 @@ type Settings struct {
 	Client *http.Client
 }
 
-// Monitor manages state for TUF repositories.
-type Monitor struct {
-	settings *Settings
-}
-
-// New instantiatest and monitor which is used to detect and manage changes to
-// the TUF repository.
-func New(settings *Settings) *Monitor {
-	if settings.Client == nil {
-		settings.Client = &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: settings.InsecureSkipVerify,
-				},
-				TLSHandshakeTimeout: 5 * time.Second,
-			},
-			Timeout: 5 * time.Second,
-		}
-	}
-	m := &Monitor{
-		settings: settings,
-	}
-	return m
-}
-
 // GetStagedPath returns a the staging path of a target if it needs to be updated. The
 // target that will be checked is defined in settings.
 // These packages are validated and obtained according to The Update Framework
 // Spec https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt
 // Section 5.1 The Client Application
-func (m *Monitor) GetStagedPath() (string, error) {
-	if m.settings.MaxResponseSize == 0 {
-		m.settings.MaxResponseSize = defaultMaxResponseSize
+func GetStagedPath(settings *Settings) (string, error) {
+	if settings.MaxResponseSize == 0 {
+		settings.MaxResponseSize = defaultMaxResponseSize
 	}
 	// check to see if Notary server is available
-	notary, err := newNotaryRepo(m.settings)
+	notary, err := newNotaryRepo(settings)
 	if err != nil {
 		return "", errors.Wrap(err, "creating notary client")
 	}
@@ -91,13 +65,13 @@ func (m *Monitor) GetStagedPath() (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "pinging notary server failed")
 	}
-	localRepo, err := newLocalRepo(m.settings.LocalRepoPath)
+	localRepo, err := newLocalRepo(settings.LocalRepoPath)
 	if err != nil {
 		return "", errors.New("creating local tuf role repo")
 	}
 	// store intermediate state until all validation succeeds, then write
 	// changed roles to non-volitile storage
-	state := newRepoMan(localRepo, notary, m.settings, notary.client)
+	state := newRepoMan(localRepo, notary, settings, notary.client)
 	stagedPath, err := state.refresh()
 	if err != nil {
 		return "", errors.Wrap(err, "getting paths for staged packages")

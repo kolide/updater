@@ -2,6 +2,7 @@ package tuf
 
 import (
 	"bytes"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -188,9 +189,16 @@ func TestGetStagedPathsNoUpdates(t *testing.T) {
 		NotaryURL:          notary.URL,
 		InsecureSkipVerify: true,
 		GUN:                "kolide/agent/linux",
+		Client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
 	}
-	mon := New(&settings)
-	stagedPath, err := mon.GetStagedPath()
+
+	stagedPath, err := GetStagedPath(&settings)
 	require.Nil(t, err)
 	require.Empty(t, stagedPath)
 }
@@ -210,9 +218,16 @@ func TestGetStagedPathsWithUpdates(t *testing.T) {
 		InsecureSkipVerify: true,
 		GUN:                "kolide/agent/linux",
 		TargetName:         "somedir/target.0",
+		Client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
 	}
-	mon := New(&settings)
-	stagedPath, err := mon.GetStagedPath()
+
+	stagedPath, err := GetStagedPath(&settings)
 	require.Nil(t, err)
 	require.NotEmpty(t, stagedPath)
 	// make sure all the files we are supposed to create are there
@@ -244,9 +259,16 @@ func TestWithKeyRotation(t *testing.T) {
 		NotaryURL:          notary.URL,
 		InsecureSkipVerify: true,
 		GUN:                "kolide/agent/linux",
+		Client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
 	}
-	mon := New(&settings)
-	stagedPath, err := mon.GetStagedPath()
+
+	stagedPath, err := GetStagedPath(&settings)
 	require.Nil(t, err)
 	require.Empty(t, stagedPath)
 

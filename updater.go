@@ -11,7 +11,9 @@
 package updater
 
 import (
+	"crypto/tls"
 	"fmt"
+	"net/http"
 	"time"
 
 	"github.com/kolide/updater/tuf"
@@ -96,10 +98,21 @@ func (u *Updater) Stop() {
 }
 
 func (u *Updater) loop() {
-	monitor := tuf.New(&u.settings)
+	if u.settings.Client == nil {
+		u.settings.Client = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: u.settings.InsecureSkipVerify,
+				},
+				TLSHandshakeTimeout: 5 * time.Second,
+			},
+			Timeout: 5 * time.Second,
+		}
+	}
+
 	ticker := time.NewTicker(u.checkFrequency).C
 	for {
-		stagingPath, err := monitor.GetStagedPath()
+		stagingPath, err := tuf.GetStagedPath(&u.settings)
 		if err != nil || stagingPath != "" {
 			u.notificationHandler(stagingPath, err)
 		}
