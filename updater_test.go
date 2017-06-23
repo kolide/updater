@@ -12,12 +12,12 @@ import (
 func TestNewOptions(t *testing.T) {
 	fakeDir, _ := os.Getwd()
 	settings := Settings{
-		GUN:               "kolide/agent/linux",
-		LocalRepoPath:     fakeDir,
-		StagingPath:       fakeDir,
-		MirrorURL:         "https://mirror.com",
-		RemoteRepoBaseURL: "https://notary.com",
-		TargetName:        "latest",
+		GUN:           "kolide/agent/linux",
+		LocalRepoPath: fakeDir,
+		StagingPath:   fakeDir,
+		MirrorURL:     "https://mirror.com",
+		NotaryURL:     "https://notary.com",
+		TargetName:    "latest",
 	}
 	onUpdate := func(stagingPath string, err error) {}
 
@@ -47,7 +47,7 @@ func TestSettingsVerification(t *testing.T) {
 	s.LocalRepoPath, _ = os.Getwd()
 	s.StagingPath, _ = os.Getwd()
 	s.MirrorURL = "https://mirror.com"
-	s.RemoteRepoBaseURL = "https://notary.com"
+	s.NotaryURL = "https://notary.com"
 	s.TargetName = "sometarget"
 	err = s.verify()
 	assert.Nil(t, err)

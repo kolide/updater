@@ -95,9 +95,10 @@ func (u *Updater) Stop() {
 }
 
 func (u *Updater) loop() {
+	monitor := tuf.New(&u.settings)
 	ticker := time.NewTicker(u.checkFrequency).C
 	for {
-		stagingPath, err := tuf.GetStagedPath(&u.settings)
+		stagingPath, err := monitor.GetStagedPath()
 		if err != nil || stagingPath != "" {
 			u.notificationHandler(stagingPath, err)
 		}
@@ -126,7 +127,7 @@ func (s *Settings) verify() error {
 	if s.TargetName == "" {
 		return errors.New("TargetName can't be empty")
 	}
-	_, err = tuf.ValidateURL(s.RemoteRepoBaseURL)
+	_, err = tuf.ValidateURL(s.NotaryURL)
 	if err != nil {
 		return errors.Wrap(err, "remote repo url validation")
 	}

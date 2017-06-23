@@ -22,10 +22,10 @@ type Settings struct {
 	// LocalRepoPath is the directory where we will cache TUF roles. This
 	// directory should be seeded with TUF role files with 0600 permissions.
 	LocalRepoPath string
-	// RemoteRepoBaseURL is the base URL of the notary server where we get new
+	// NotaryURL is the base URL of the notary server where we get new
 	// keys and update information.  i.e. https://notary.kolide.co. Must use
 	// https scheme.
-	RemoteRepoBaseURL string
+	NotaryURL string
 	// MirrorURL is the base URL where distribution packages are found and
 	// downloaded. Must use https scheme.
 	MirrorURL string
@@ -46,17 +46,42 @@ type Settings struct {
 	TargetName targetNameType
 }
 
+type Monitor interface {
+	GetStagedPath() (string, error)
+}
+
+type monitor struct {
+	client   *http.Client
+	settings *Settings
+}
+
+func New(settings *Settings) Monitor {
+	m := &monitor{
+		client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: settings.InsecureSkipVerify,
+				},
+				TLSHandshakeTimeout: 5 * time.Second,
+			},
+			Timeout: 5 * time.Second,
+		},
+		settings: settings,
+	}
+	return m
+}
+
 // GetStagedPath returns a the staging path of a target if it needs to be updated. The
 // target that will be checked is defined in settings.
 // These packages are validated and obtained according to The Update Framework
 // Spec https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt
 // Section 5.1 The Client Application
-func GetStagedPath(settings *Settings) (string, error) {
-	if settings.MaxResponseSize == 0 {
-		settings.MaxResponseSize = defaultMaxResponseSize
+func (m *monitor) GetStagedPath() (string, error) {
+	if m.settings.MaxResponseSize == 0 {
+		m.settings.MaxResponseSize = defaultMaxResponseSize
 	}
 	// check to see if Notary server is available
-	notary, err := newNotaryRepo(settings.RemoteRepoBaseURL, settings.GUN, settings.MaxResponseSize, settings.InsecureSkipVerify)
+	notary, err := newNotaryRepo(m.client, m.settings)
 	if err != nil {
 		return "", errors.Wrap(err, "creating notary client")
 	}
@@ -64,13 +89,13 @@ func GetStagedPath(settings *Settings) (string, error) {
 	if err != nil {
 		return "", errors.Wrap(err, "pinging notary server failed")
 	}
-	localRepo, err := newLocalRepo(settings.LocalRepoPath)
+	localRepo, err := newLocalRepo(m.settings.LocalRepoPath)
 	if err != nil {
 		return "", errors.New("creating local tuf role repo")
 	}
 	// store intermediate state until all validation succeeds, then write
 	// changed roles to non-volitile storage
-	state := newRepoMan(localRepo, notary, settings)
+	state := newRepoMan(localRepo, notary, m.settings, notary.client)
 	stagedPath, err := state.refresh()
 	if err != nil {
 		return "", errors.Wrap(err, "getting paths for staged packages")
@@ -99,13 +124,15 @@ type repoMan struct {
 	timestamp *Timestamp
 	snapshot  *Snapshot
 	targets   *Targets
+	client    *http.Client
 }
 
-func newRepoMan(repo persistentRepo, notary remoteRepo, settings *Settings) *repoMan {
+func newRepoMan(repo persistentRepo, notary remoteRepo, settings *Settings, client *http.Client) *repoMan {
 	return &repoMan{
 		settings: settings,
 		repo:     repo,
 		notary:   notary,
+		client:   client,
 	}
 }
 
@@ -113,7 +140,10 @@ func (rs *repoMan) save(backupTag string) (err error) {
 	defer func() {
 		if err != nil {
 			rs.restoreRoles(backupTag)
+			return
 		}
+		// clean up backup files
+		err = rs.deleteBackupRoles(backupTag)
 	}()
 	var buff []byte
 	roles := []struct {
@@ -176,6 +206,29 @@ func (rs *repoMan) restoreRoles(tag string) error {
 		err = os.Rename(source, destination)
 		if err != nil {
 			return errors.Wrap(err, "moving backup role")
+		}
+	}
+	return nil
+}
+
+// If local TUF repo was successfully updated we want to get rid of backup files
+// that they don't take up drive space.
+func (rs *repoMan) deleteBackupRoles(tag string) error {
+	roles := []role{roleRoot, roleTargets, roleSnapshot, roleTimestamp}
+	for _, r := range roles {
+		backupFilePath := path.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.%s.json", r, tag))
+		fs, err := os.Stat(backupFilePath)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return errors.Wrap(err, "checking existance of role backup file")
+		}
+		if fs.Mode().IsRegular() {
+			err = os.Remove(backupFilePath)
+			if err != nil {
+				return errors.Wrap(err, "removing role backup file")
+			}
 		}
 	}
 	return nil
@@ -390,20 +443,11 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, str
 }
 
 func (rs *repoMan) stageTarget(tgts map[targetNameType]FileIntegrityMeta) (string, error) {
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: rs.settings.InsecureSkipVerify,
-			},
-			TLSHandshakeTimeout: 5 * time.Second,
-		},
-		Timeout: 5 * time.Second,
-	}
 	fim, ok := tgts[rs.settings.TargetName]
 	if !ok {
 		return "", errors.Errorf("No such target %q in %q", rs.settings.TargetName, rs.settings.GUN)
 	}
-	stagePath, err := rs.downloadTarget(client, rs.settings.TargetName, &fim)
+	stagePath, err := rs.downloadTarget(rs.client, rs.settings.TargetName, &fim)
 	if err != nil {
 		return "", errors.Wrap(err, "downloading target")
 	}

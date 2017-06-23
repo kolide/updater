@@ -1,6 +1,7 @@
 package tuf
 
 import (
+	"crypto/tls"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -79,6 +80,13 @@ func TestGetRemoteRole(t *testing.T) {
 			url:             baseURL,
 			skipVerify:      true,
 			maxResponseSize: defaultMaxResponseSize,
+			client: &http.Client{
+				Transport: &http.Transport{
+					TLSClientConfig: &tls.Config{
+						InsecureSkipVerify: true,
+					},
+				},
+			},
 		}
 
 		var intf interface{}
@@ -117,6 +125,13 @@ func TestTheReadSizeLimitsAreEnforced(t *testing.T) {
 		url:             baseURL,
 		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
+		client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
 	}
 	// it should fail if the expected size is smaller the remote response
 	_, err := r.snapshot(expectedSize(902))
@@ -144,6 +159,13 @@ func TestGetVersionRoot(t *testing.T) {
 		url:             baseURL,
 		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
+		client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
 	}
 
 	root, err := r.root(version(1))
@@ -168,6 +190,13 @@ func TestGetRoot(t *testing.T) {
 		url:             baseURL,
 		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
+		client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
 	}
 
 	root, err := r.root()
@@ -192,6 +221,13 @@ func TestGetTargets(t *testing.T) {
 		url:             baseURL,
 		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
+		client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
 	}
 
 	targets, err := r.targets()
@@ -215,6 +251,13 @@ func TestGetTimestamp(t *testing.T) {
 		url:             baseURL,
 		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
+		client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
 	}
 
 	timestamp, err := r.timestamp()
@@ -238,6 +281,13 @@ func TestGetSnapshot(t *testing.T) {
 		url:             baseURL,
 		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
+		client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
 	}
 
 	snapshot, err := r.snapshot()
@@ -259,6 +309,13 @@ func Test404ErrorPassesThrough(t *testing.T) {
 		url:             baseURL,
 		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
+		client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
 	}
 
 	_, err := r.snapshot()
@@ -278,6 +335,13 @@ func TestPingSuccess(t *testing.T) {
 		url:             baseURL,
 		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
+		client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
 	}
 
 	err := r.ping()
@@ -296,6 +360,13 @@ func TestPingFail(t *testing.T) {
 		url:             baseURL,
 		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
+		client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
 	}
 
 	err := r.ping()

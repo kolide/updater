@@ -19,22 +19,30 @@ import (
 )
 
 func TestURLValidation(t *testing.T) {
-	r, err := newNotaryRepo("https://foo.com/zip.json", "kolide/agent/linux", defaultMaxResponseSize, true)
+	settings := &Settings{
+		NotaryURL:          "https://foo.com/zip.json",
+		GUN:                "kolide/agent/linux",
+		MaxResponseSize:    defaultMaxResponseSize,
+		InsecureSkipVerify: true,
+	}
+	client := &http.Client{}
+	r, err := newNotaryRepo(client, settings)
 	require.Nil(t, err)
 	assert.NotNil(t, r)
 	assert.True(t, r.skipVerify)
 	assert.NotNil(t, r.url)
 	assert.Equal(t, "kolide/agent/linux", r.gun)
-
-	r, err = newNotaryRepo("HtTps://foo.com/zip.json", "kolide/agent/linux", defaultMaxResponseSize, false)
+	settings.NotaryURL = "HtTps://foo.com/zip.json"
+	settings.InsecureSkipVerify = false
+	r, err = newNotaryRepo(client, settings)
 	require.Nil(t, err)
 	assert.NotNil(t, r)
-
-	r, err = newNotaryRepo("http://foo.com/zip.json", "kolide/agent/linux", defaultMaxResponseSize, false)
+	settings.NotaryURL = "http://foo.com/zip.json"
+	r, err = newNotaryRepo(client, settings)
 	require.NotNil(t, err)
 	assert.Nil(t, r)
-
-	r, err = newNotaryRepo("garbage", "kolide/agent/linux", defaultMaxResponseSize, false)
+	settings.NotaryURL = "garbage"
+	r, err = newNotaryRepo(client, settings)
 	require.NotNil(t, err)
 	assert.Nil(t, r)
 }
@@ -176,11 +184,12 @@ func TestGetStagedPathsNoUpdates(t *testing.T) {
 		LocalRepoPath:      localRepoPath,
 		StagingPath:        stagingPath,
 		MirrorURL:          mirror.URL,
-		RemoteRepoBaseURL:  notary.URL,
+		NotaryURL:          notary.URL,
 		InsecureSkipVerify: true,
 		GUN:                "kolide/agent/linux",
 	}
-	stagedPath, err := GetStagedPath(&settings)
+	mon := New(&settings)
+	stagedPath, err := mon.GetStagedPath()
 	require.Nil(t, err)
 	require.Empty(t, stagedPath)
 }
@@ -196,12 +205,13 @@ func TestGetStagedPathsWithUpdates(t *testing.T) {
 		LocalRepoPath:      localRepoPath,
 		StagingPath:        stagingPath,
 		MirrorURL:          mirror.URL,
-		RemoteRepoBaseURL:  notary.URL,
+		NotaryURL:          notary.URL,
 		InsecureSkipVerify: true,
 		GUN:                "kolide/agent/linux",
 		TargetName:         "somedir/target.0",
 	}
-	stagedPath, err := GetStagedPath(&settings)
+	mon := New(&settings)
+	stagedPath, err := mon.GetStagedPath()
 	require.Nil(t, err)
 	require.NotEmpty(t, stagedPath)
 	// make sure all the files we are supposed to create are there
@@ -230,11 +240,12 @@ func TestWithKeyRotation(t *testing.T) {
 		LocalRepoPath:      localRepoPath,
 		StagingPath:        stagingPath,
 		MirrorURL:          mirror.URL,
-		RemoteRepoBaseURL:  notary.URL,
+		NotaryURL:          notary.URL,
 		InsecureSkipVerify: true,
 		GUN:                "kolide/agent/linux",
 	}
-	stagedPath, err := GetStagedPath(&settings)
+	mon := New(&settings)
+	stagedPath, err := mon.GetStagedPath()
 	require.Nil(t, err)
 	require.Empty(t, stagedPath)
 
@@ -325,11 +336,9 @@ func TestBackupAndRecover(t *testing.T) {
 	err = rm.save(tag)
 	require.Nil(t, err)
 
-	// should have original files AND backup files
+	// should have original files
 	for i := range files {
 		_, err = os.Stat(files[i])
-		assert.Nil(t, err)
-		_, err = os.Stat(backupFiles[i])
 		assert.Nil(t, err)
 	}
 }
