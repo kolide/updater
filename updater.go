@@ -48,7 +48,7 @@ type NotificationHandler func(stagingPath string, err error)
 
 const (
 	defaultCheckFrequency = 1 * time.Hour
-	minimumCheckFrequency = 1 * time.Second
+	minimumCheckFrequency = 1 * time.Minute
 )
 
 var (
