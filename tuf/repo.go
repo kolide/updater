@@ -64,12 +64,12 @@ func newLocalRepo(repoPath string) (*localRepo, error) {
 }
 
 //(baseURL, gun string, maxResponseSize int64, skipVerify bool) (*notaryRepo, error) {
-func newNotaryRepo(client *http.Client, settings *Settings) (*notaryRepo, error) {
+func newNotaryRepo(settings *Settings) (*notaryRepo, error) {
 	r := &notaryRepo{
 		maxResponseSize: settings.MaxResponseSize,
 		skipVerify:      settings.InsecureSkipVerify,
 		gun:             settings.GUN,
-		client:          client,
+		client:          settings.Client,
 	}
 	var err error
 	r.url, err = ValidateURL(settings.NotaryURL)

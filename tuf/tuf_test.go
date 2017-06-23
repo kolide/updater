@@ -24,9 +24,10 @@ func TestURLValidation(t *testing.T) {
 		GUN:                "kolide/agent/linux",
 		MaxResponseSize:    defaultMaxResponseSize,
 		InsecureSkipVerify: true,
+		Client:             &http.Client{},
 	}
-	client := &http.Client{}
-	r, err := newNotaryRepo(client, settings)
+
+	r, err := newNotaryRepo(settings)
 	require.Nil(t, err)
 	assert.NotNil(t, r)
 	assert.True(t, r.skipVerify)
@@ -34,15 +35,15 @@ func TestURLValidation(t *testing.T) {
 	assert.Equal(t, "kolide/agent/linux", r.gun)
 	settings.NotaryURL = "HtTps://foo.com/zip.json"
 	settings.InsecureSkipVerify = false
-	r, err = newNotaryRepo(client, settings)
+	r, err = newNotaryRepo(settings)
 	require.Nil(t, err)
 	assert.NotNil(t, r)
 	settings.NotaryURL = "http://foo.com/zip.json"
-	r, err = newNotaryRepo(client, settings)
+	r, err = newNotaryRepo(settings)
 	require.NotNil(t, err)
 	assert.Nil(t, r)
 	settings.NotaryURL = "garbage"
-	r, err = newNotaryRepo(client, settings)
+	r, err = newNotaryRepo(settings)
 	require.NotNil(t, err)
 	assert.Nil(t, r)
 }

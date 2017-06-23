@@ -44,20 +44,20 @@ type Settings struct {
 	// TargetName is the name of the target to retreive. Typically this would
 	// denote a version, like 'v2' or 'latest'
 	TargetName targetNameType
+	// Client is the one and only http client
+	Client *http.Client
 }
 
-type Monitor interface {
-	GetStagedPath() (string, error)
-}
-
-type monitor struct {
-	client   *http.Client
+// Monitor manages state for TUF repositories.
+type Monitor struct {
 	settings *Settings
 }
 
-func New(settings *Settings) Monitor {
-	m := &monitor{
-		client: &http.Client{
+// New instantiatest and monitor which is used to detect and manage changes to
+// the TUF repository.
+func New(settings *Settings) *Monitor {
+	if settings.Client == nil {
+		settings.Client = &http.Client{
 			Transport: &http.Transport{
 				TLSClientConfig: &tls.Config{
 					InsecureSkipVerify: settings.InsecureSkipVerify,
@@ -65,7 +65,9 @@ func New(settings *Settings) Monitor {
 				TLSHandshakeTimeout: 5 * time.Second,
 			},
 			Timeout: 5 * time.Second,
-		},
+		}
+	}
+	m := &Monitor{
 		settings: settings,
 	}
 	return m
@@ -76,12 +78,12 @@ func New(settings *Settings) Monitor {
 // These packages are validated and obtained according to The Update Framework
 // Spec https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt
 // Section 5.1 The Client Application
-func (m *monitor) GetStagedPath() (string, error) {
+func (m *Monitor) GetStagedPath() (string, error) {
 	if m.settings.MaxResponseSize == 0 {
 		m.settings.MaxResponseSize = defaultMaxResponseSize
 	}
 	// check to see if Notary server is available
-	notary, err := newNotaryRepo(m.client, m.settings)
+	notary, err := newNotaryRepo(m.settings)
 	if err != nil {
 		return "", errors.Wrap(err, "creating notary client")
 	}
