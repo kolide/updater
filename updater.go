@@ -48,7 +48,7 @@ type NotificationHandler func(stagingPath string, err error)
 
 const (
 	defaultCheckFrequency = 1 * time.Hour
-	minimumCheckFrequency = 1 * time.Minute
+	minimumCheckFrequency = 1 * time.Second
 )
 
 var (
@@ -76,6 +76,7 @@ func Start(settings Settings, onUpdate NotificationHandler, opts ...Option) (*Up
 		checkFrequency:      defaultCheckFrequency,
 		notificationHandler: onUpdate,
 		settings:            tuf.Settings(settings),
+		done:                make(chan chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(&updater)
