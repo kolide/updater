@@ -270,12 +270,15 @@ func (rs *repoMan) refreshRoot() (*Root, error) {
 		if err != nil {
 			return nil, errors.Wrap(err, "reading root version from notary")
 		}
-		// check signatures from current root, and next root to establish chain of trust
+		// If we get here we have a new root role.  We have to validate it against
+		// the previous root to establish a chain of trust, so check that the new
+		// root was signed by the the current root (use the current roots keys).
 		keymap := keymapForSignatures(root)
-		err = rs.verifySignatures(nextRoot.Signed, keymap, root.Signatures, root.Signed.Roles[roleRoot].Threshold)
+		err = rs.verifySignatures(nextRoot.Signed, keymap, nextRoot.Signatures, root.Signed.Roles[roleRoot].Threshold)
 		if err != nil {
 			return nil, errors.Wrap(err, " previous root signature verification failed")
 		}
+		// Now get the new root's keys and check the signature.
 		keymap = keymapForSignatures(nextRoot)
 		err = rs.verifySignatures(nextRoot.Signed, keymap, nextRoot.Signatures, nextRoot.Signed.Roles[roleRoot].Threshold)
 		if err != nil {
@@ -468,7 +471,8 @@ func (rs *repoMan) downloadTarget(client *http.Client, target targetNameType, fi
 	}
 	// our target is valid so write it to staging
 	stagingPath := path.Join(rs.settings.StagingPath, string(target))
-	// find out of any subdirectories need to be created
+	// TODO: this needs to tested with Windows
+	// find out if any subdirectories need to be created
 	fullDir := filepath.Dir(stagingPath)
 	fs, err := os.Stat(fullDir)
 	if os.IsNotExist(err) {
