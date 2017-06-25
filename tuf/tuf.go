@@ -48,7 +48,8 @@ type Settings struct {
 }
 
 // GetStagedPath returns a the staging path of a target if it needs to be updated. The
-// target that will be checked is defined in settings.
+// target that will be checked is defined in settings. If validations pass but there is
+// not a new package to download, the string value returned will be empty.
 // These packages are validated and obtained according to The Update Framework
 // Spec https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt
 // Section 5.1 The Client Application
@@ -228,7 +229,7 @@ func (rs *repoMan) saveRole(r role, js []byte) error {
 
 // refresh gets the current metadata from the notary repository and performs
 // requisite checks and validations as specified in the TUF spec section 5. Note
-// that we expect that we do not used consistent snapshots and delegations are
+// that we expect that we do not use consistent snapshots and delegations are
 // not supported because for our purposes, both are unnecessary.
 // See https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt
 func (rs *repoMan) refresh() (string, error) {
