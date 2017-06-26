@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path"
+	"path/filepath"
 	"regexp"
 	"testing"
 	"time"
@@ -74,7 +75,7 @@ func createLocalRepo(version int, location string, t *testing.T) {
 		buff, err := test.Asset(source)
 		require.Nil(t, err)
 		func() {
-			target := path.Join(location, fmt.Sprintf("%s.json", role))
+			target := filepath.Join(location, fmt.Sprintf("%s.json", role))
 			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, 0644)
 			require.Nil(t, err)
 			defer f.Close()
@@ -232,10 +233,10 @@ func TestGetStagedPathsWithUpdates(t *testing.T) {
 	require.NotEmpty(t, stagedPath)
 	// make sure all the files we are supposed to create are there
 	files := []string{
-		path.Join(localRepoPath, "root.json"),
-		path.Join(localRepoPath, "timestamp.json"),
-		path.Join(localRepoPath, "snapshot.json"),
-		path.Join(localRepoPath, "targets.json"),
+		filepath.Join(localRepoPath, "root.json"),
+		filepath.Join(localRepoPath, "timestamp.json"),
+		filepath.Join(localRepoPath, "snapshot.json"),
+		filepath.Join(localRepoPath, "targets.json"),
 	}
 
 	for _, f := range files {
@@ -274,10 +275,10 @@ func TestWithRootKeyRotation(t *testing.T) {
 
 	// make sure all the files we are supposed to create are there
 	files := []string{
-		path.Join(localRepoPath, "root.json"),
-		path.Join(localRepoPath, "timestamp.json"),
-		path.Join(localRepoPath, "snapshot.json"),
-		path.Join(localRepoPath, "targets.json"),
+		filepath.Join(localRepoPath, "root.json"),
+		filepath.Join(localRepoPath, "timestamp.json"),
+		filepath.Join(localRepoPath, "snapshot.json"),
+		filepath.Join(localRepoPath, "targets.json"),
 	}
 
 	for _, f := range files {
@@ -303,16 +304,16 @@ func TestBackupAndRecover(t *testing.T) {
 
 	// remove files and make sure that they get restored
 	backupFiles := []string{
-		path.Join(localRepoPath, fmt.Sprintf("root.%s.json", tag)),
-		path.Join(localRepoPath, fmt.Sprintf("timestamp.%s.json", tag)),
-		path.Join(localRepoPath, fmt.Sprintf("snapshot.%s.json", tag)),
-		path.Join(localRepoPath, fmt.Sprintf("targets.%s.json", tag)),
+		filepath.Join(localRepoPath, fmt.Sprintf("root.%s.json", tag)),
+		filepath.Join(localRepoPath, fmt.Sprintf("timestamp.%s.json", tag)),
+		filepath.Join(localRepoPath, fmt.Sprintf("snapshot.%s.json", tag)),
+		filepath.Join(localRepoPath, fmt.Sprintf("targets.%s.json", tag)),
 	}
 	files := []string{
-		path.Join(localRepoPath, "root.json"),
-		path.Join(localRepoPath, "timestamp.json"),
-		path.Join(localRepoPath, "snapshot.json"),
-		path.Join(localRepoPath, "targets.json"),
+		filepath.Join(localRepoPath, "root.json"),
+		filepath.Join(localRepoPath, "timestamp.json"),
+		filepath.Join(localRepoPath, "snapshot.json"),
+		filepath.Join(localRepoPath, "targets.json"),
 	}
 	// backup file should exist, regular file should not
 	for i := range files {
@@ -395,10 +396,10 @@ func TestWithTimestampKeyRotation(t *testing.T) {
 
 	// make sure all the files we are supposed to create are there
 	files := []string{
-		path.Join(localRepoPath, "root.json"),
-		path.Join(localRepoPath, "timestamp.json"),
-		path.Join(localRepoPath, "snapshot.json"),
-		path.Join(localRepoPath, "targets.json"),
+		filepath.Join(localRepoPath, "root.json"),
+		filepath.Join(localRepoPath, "timestamp.json"),
+		filepath.Join(localRepoPath, "snapshot.json"),
+		filepath.Join(localRepoPath, "targets.json"),
 	}
 
 	for _, f := range files {

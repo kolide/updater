@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path"
+	"path/filepath"
 
 	"github.com/pkg/errors"
 )
@@ -49,7 +49,7 @@ func (r *localRepo) targets(opts ...func() interface{}) (*Targets, error) {
 // data is the class containing the role information
 func (r *localRepo) save(roleName role, data interface{}) error {
 	isRoleCorrect(roleName, data)
-	f, err := os.OpenFile(path.Join(r.repoPath, fmt.Sprintf("%s.json", roleName)), os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(filepath.Join(r.repoPath, fmt.Sprintf("%s.json", roleName)), os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return errors.Wrap(err, "opening role file for writing")
 	}
@@ -62,7 +62,7 @@ func (r *localRepo) getRole(name role, val interface{}) error {
 	if err != nil {
 		return err
 	}
-	f, err := os.Open(path.Join(r.repoPath, fmt.Sprintf("%s.json", name)))
+	f, err := os.Open(filepath.Join(r.repoPath, fmt.Sprintf("%s.json", name)))
 	if err != nil {
 		return errors.Wrap(err, "getting role")
 	}
