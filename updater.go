@@ -13,6 +13,7 @@ package updater
 import (
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 
@@ -30,6 +31,7 @@ type Updater struct {
 	done                chan chan struct{}
 	checkFrequency      time.Duration
 	notificationHandler NotificationHandler
+	client              *tuf.Client
 }
 
 // WithFrequency allows changing the frequency of update checks.
@@ -74,11 +76,31 @@ func Start(settings Settings, onUpdate NotificationHandler, opts ...Option) (*Up
 	if err != nil {
 		return nil, errors.Wrap(err, "creating updater")
 	}
+
+	// use a default HTTP Client if not set
+	if settings.Client == nil {
+		settings.Client = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: settings.InsecureSkipVerify,
+				},
+				TLSHandshakeTimeout: 5 * time.Second,
+			},
+			Timeout: 5 * time.Second,
+		}
+	}
+
+	s := tuf.Settings(settings)
+	client, err := tuf.NewClient(&s)
+	if err != nil {
+		return nil, err
+	}
 	updater := Updater{
 		checkFrequency:      defaultCheckFrequency,
 		notificationHandler: onUpdate,
 		settings:            tuf.Settings(settings),
 		done:                make(chan chan struct{}),
+		client:              client,
 	}
 	for _, opt := range opts {
 		opt(&updater)
@@ -92,24 +114,14 @@ func Start(settings Settings, onUpdate NotificationHandler, opts ...Option) (*Up
 
 // Stop will disables the update checker goroutine.
 func (u *Updater) Stop() {
+	u.client.Stop()
+
 	done := make(chan struct{})
 	u.done <- done
 	<-done
 }
 
 func (u *Updater) loop() {
-	if u.settings.Client == nil {
-		u.settings.Client = &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: u.settings.InsecureSkipVerify,
-				},
-				TLSHandshakeTimeout: 5 * time.Second,
-			},
-			Timeout: 5 * time.Second,
-		}
-	}
-
 	ticker := time.NewTicker(u.checkFrequency).C
 	for {
 		stagingPath, err := tuf.GetStagedPath(&u.settings)
@@ -123,6 +135,10 @@ func (u *Updater) loop() {
 			return
 		}
 	}
+}
+
+func (u *Updater) Download(target string, destination io.Writer) error {
+	return u.client.Download(target, destination)
 }
 
 // Verify performs some preliminary checks on parameter.

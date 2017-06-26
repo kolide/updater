@@ -111,15 +111,74 @@ type repoMan struct {
 	snapshot  *Snapshot
 	targets   *Targets
 	client    *http.Client
+
+	actionc chan func()
+	quit    chan chan struct{}
+}
+
+func (rs *repoMan) Stop() {
+	quit := make(chan struct{})
+	rs.quit <- quit
+	<-quit
+}
+
+func (rs *repoMan) refresSafe() (bool, error) {
+	errc := make(chan error)
+	var isLatest bool
+	rs.actionc <- func() {
+		root, err := rs.refreshRoot()
+		if err != nil {
+			errc <- errors.Wrap(err, "refreshing root")
+			return
+		}
+		rs.root = root
+		timestamp, err := rs.refreshTimestamp(root)
+		if err != nil {
+			errc <- errors.Wrap(err, "refreshing timestamp")
+			return
+		}
+		rs.timestamp = timestamp
+		snapshot, err := rs.refreshSnapshot(root, timestamp)
+		if err != nil {
+			errc <- errors.Wrap(err, "refreshing snapshot")
+			return
+		}
+		rs.snapshot = snapshot
+		targets, latest, err := rs.refreshTargets(root, snapshot)
+		if err != nil {
+			errc <- errors.Wrap(err, "refreshing targets")
+			return
+		}
+		isLatest = latest
+		rs.targets = targets
+		errc <- nil
+	}
+	return isLatest, <-errc
+}
+
+func (rs *repoMan) loop() {
+	for {
+		select {
+		case f := <-rs.actionc:
+			f()
+		case quit := <-rs.quit:
+			close(quit)
+			return
+		}
+	}
 }
 
 func newRepoMan(repo persistentRepo, notary remoteRepo, settings *Settings, client *http.Client) *repoMan {
-	return &repoMan{
+	man := &repoMan{
 		settings: settings,
 		repo:     repo,
 		notary:   notary,
 		client:   client,
+		actionc:  make(chan func()),
+		quit:     make(chan chan struct{}),
 	}
+	go man.loop()
+	return man
 }
 
 func (rs *repoMan) save(backupTag string) (err error) {
@@ -258,11 +317,19 @@ func (rs *repoMan) refresh() (string, error) {
 		return "", errors.Wrap(err, "refreshing snapshot")
 	}
 	rs.snapshot = snapshot
-	targets, stagingPath, err := rs.refreshTargets(root, snapshot)
+	targets, latest, err := rs.refreshTargets(root, snapshot)
 	if err != nil {
 		return "", errors.Wrap(err, "refreshing targets")
 	}
 	rs.targets = targets
+	var stagingPath string
+	if !latest {
+		sp, err := rs.stageTarget(targets.Signed.Targets)
+		if err != nil {
+			return "", errors.Wrap(err, "downloading updated target")
+		}
+		stagingPath = sp
+	}
 	return stagingPath, nil
 }
 
@@ -450,7 +517,7 @@ func (rs *repoMan) refreshSnapshot(root *Root, timestamp *Timestamp) (*Snapshot,
 }
 
 // Targets processing section 5.4 through 5.5.2 in the TUF spec
-func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, string, error) {
+func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, bool, error) {
 	// 4. **Download and check the top-level targets metadata file**, up to either
 	// the number of bytes specified in the snapshot metadata file, or some
 	// Z number of bytes. The value for Z is set by the authors of the application
@@ -467,9 +534,10 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, str
 	// number of this metadata file MUST match the snapshot metadata. This is
 	// done, in part, to prevent a mix-and-match attack by man-in-the-middle
 	// attackers.
+	latest := true
 	fim, ok := snapshot.Signed.Meta[roleTargets]
 	if !ok {
-		return nil, "", errors.New("missing target metadata in snapshot")
+		return nil, latest, errors.New("missing target metadata in snapshot")
 	}
 	var opts []func() interface{}
 	opts = append(opts, expectedSize(int64(fim.Length)))
@@ -483,7 +551,7 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, str
 	}
 	current, err := rs.notary.targets(opts...)
 	if err != nil {
-		return nil, "", errors.Wrap(err, "retrieving timestamp from notary")
+		return nil, latest, errors.Wrap(err, "retrieving timestamp from notary")
 	}
 	// 4.2. **Check for an arbitrary software attack.** This metadata file MUST
 	// have been signed by a threshold of keys specified in the latest root
@@ -492,32 +560,27 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, str
 	threshold := root.Signed.Roles[roleTargets].Threshold
 	err = rs.verifySignatures(current.Signed, keys, current.Signatures, threshold)
 	if err != nil {
-		return nil, "", errors.Wrap(err, "signature verification for targets failed")
+		return nil, latest, errors.Wrap(err, "signature verification for targets failed")
 	}
 	previous, err := rs.repo.targets()
 	if err != nil {
-		return nil, "", errors.Wrap(err, "fetching local targets")
+		return nil, latest, errors.Wrap(err, "fetching local targets")
 	}
 	// 4.3. **Check for a rollback attack.** The version number of the previous
 	// targets metadata file, if any, MUST be less than or equal to the version
 	// number of this targets metadata file.
 	if previous.Signed.Version > current.Signed.Version {
-		return nil, "", errRollbackAttack
+		return nil, latest, errRollbackAttack
 	}
 	// 4.4. **Check for a freeze attack.** The latest known time should be lower
 	// than the expiration timestamp in this metadata file.
 	if time.Now().After(current.Signed.Expires) {
-		return nil, "", errFreezeAttack
+		return nil, latest, errFreezeAttack
 	}
-	// If we have a new version of the target download it.
-	var stagedPath string
 	if current.Signed.Version > previous.Signed.Version {
-		stagedPath, err = rs.stageTarget(current.Signed.Targets)
-		if err != nil {
-			return nil, "", errors.Wrap(err, "staging targets")
-		}
+		latest = false
 	}
-	return current, stagedPath, nil
+	return current, latest, nil
 }
 
 func (rs *repoMan) getKeys(r *Root, sigs []Signature) map[keyID]Key {
