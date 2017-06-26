@@ -245,8 +245,8 @@ func TestGetStagedPathsWithUpdates(t *testing.T) {
 	}
 }
 
-func TestWithKeyRotation(t *testing.T) {
-	localRepoPath, stagingPath := setupTufLocal(2, t)
+func TestWithRootKeyRotation(t *testing.T) {
+	localRepoPath, stagingPath := setupTufLocal(1, t)
 	defer os.RemoveAll(localRepoPath)
 	defer os.RemoveAll(stagingPath)
 	notary, mirror := setupTufRemote(2, "3", t)
@@ -363,5 +363,47 @@ func TestBackupAndRecover(t *testing.T) {
 	for i := range files {
 		_, err = os.Stat(files[i])
 		assert.Nil(t, err)
+	}
+}
+
+func TestWithTimestampKeyRotation(t *testing.T) {
+	localRepoPath, stagingPath := setupTufLocal(3, t)
+	defer os.RemoveAll(localRepoPath)
+	defer os.RemoveAll(stagingPath)
+	notary, mirror := setupTufRemote(4, "3", t)
+	defer notary.Close()
+	defer mirror.Close()
+	settings := Settings{
+		LocalRepoPath:      localRepoPath,
+		StagingPath:        stagingPath,
+		MirrorURL:          mirror.URL,
+		NotaryURL:          notary.URL,
+		InsecureSkipVerify: true,
+		GUN:                "kolide/agent/linux",
+		Client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
+	}
+
+	stagedPath, err := GetStagedPath(&settings)
+	require.Nil(t, err)
+	require.Empty(t, stagedPath)
+
+	// make sure all the files we are supposed to create are there
+	files := []string{
+		path.Join(localRepoPath, "root.json"),
+		path.Join(localRepoPath, "timestamp.json"),
+		path.Join(localRepoPath, "snapshot.json"),
+		path.Join(localRepoPath, "targets.json"),
+	}
+
+	for _, f := range files {
+		fs, err := os.Stat(f)
+		require.False(t, os.IsNotExist(err))
+		require.NotNil(t, fs)
 	}
 }
