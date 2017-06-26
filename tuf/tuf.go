@@ -15,6 +15,11 @@ import (
 	"github.com/pkg/errors"
 )
 
+var (
+	errRollbackAttack = errors.New("role version is greater than previous role version")
+	errFreezeAttack   = errors.New("current time is after role expiration timestamp")
+)
+
 // Settings various parameters needed to find updates
 type Settings struct {
 	// LocalRepoPath is the directory where we will cache TUF roles. This
@@ -226,9 +231,9 @@ func (rs *repoMan) saveRole(r role, js []byte) error {
 	return nil
 }
 
-// refresh gets the current metadata from the notary repository and performs
-// requisite checks and validations as specified in the TUF spec section 5. Note
-// that we expect that we do not use consistent snapshots and delegations are
+// Refresh gets the current metadata from the notary repository and performs
+// requisite checks and validations as specified in the TUF spec section 5.1 'The Client Application'.
+// Note that we expect that we do not use consistent snapshots and delegations are
 // not supported because for our purposes, both are unnecessary.
 // See https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt
 func (rs *repoMan) refresh() (string, error) {
@@ -256,13 +261,40 @@ func (rs *repoMan) refresh() (string, error) {
 	return stagingPath, nil
 }
 
+// Root role processing TUF spec section 5.1.0 through 5.1.1.9
 func (rs *repoMan) refreshRoot() (*Root, error) {
-	// get root from local
+	// 0. **Load the previous root metadata file.** We assume that a good, trusted
+	// copy of this file was shipped with the package manager / software updater
+	// using an out-of-band process.
 	root, err := rs.repo.root()
 	if err != nil {
 		return nil, errors.Wrap(err, "refresh root")
 	}
+	// 	0.1. **Check signatures.** The previous root metadata file MUST have been
+	// signed by a threshold of keys specified in the previous root metadata file.
+	//
+	// 	0.2. Note that the expiration of the previous root metadata file does not
+	// matter, because we will attempt to update it in the next step.
+	keymap := keymapForSignatures(root)
+	err = rs.verifySignatures(root.Signed, keymap, root.Signatures, root.Signed.Roles[roleRoot].Threshold)
+	if err != nil {
+		return nil, errors.Wrap(err, "validating existing root")
+	}
+	// 	1. **Update the root metadata file.** Since it may now be signed using
+	// entirely different keys, the client must somehow be able to establish a
+	// trusted line of continuity to the latest set of keys (see Section 6.1). To
+	// do so, the client MUST download intermediate root metadata files, until the
+	// latest available one is reached.
+	//
+	// 1.1. Let N denote the version number of the previous root metadata file.
+	//
 	for {
+		// 1.2. **Try downloading version N+1 of the root metadata file**, up to some
+		// X number of bytes (because the size is unknown). The value for X is set by
+		// the authors of the application using TUF. For example, X may be tens of
+		// kilobytes. The filename used to download the root metadata file is of the
+		// fixed form VERSION.FILENAME.EXT (e.g., 42.root.json). If this file is not
+		// available, then go to step 1.8.
 		nextRoot, err := rs.notary.root(version(root.Signed.Version + 1))
 		if err == errNotFound {
 			break
@@ -270,78 +302,97 @@ func (rs *repoMan) refreshRoot() (*Root, error) {
 		if err != nil {
 			return nil, errors.Wrap(err, "reading root version from notary")
 		}
-		// If we get here we have a new root role.  We have to validate it against
-		// the previous root to establish a chain of trust, so check that the new
-		// root was signed by the the current root (use the current roots keys).
+		// 1.3. **Check signatures.** Version N+1 of the root metadata file MUST have
+		// been signed by: (1) a threshold of keys specified in the previous root
+		// metadata file (version N), and (2) a threshold of keys specified in the
+		// current root metadata file (version N+1).
 		keymap := keymapForSignatures(root)
 		err = rs.verifySignatures(nextRoot.Signed, keymap, nextRoot.Signatures, root.Signed.Roles[roleRoot].Threshold)
 		if err != nil {
 			return nil, errors.Wrap(err, " previous root signature verification failed")
 		}
-		// Now get the new root's keys and check the signature.
 		keymap = keymapForSignatures(nextRoot)
 		err = rs.verifySignatures(nextRoot.Signed, keymap, nextRoot.Signatures, nextRoot.Signed.Roles[roleRoot].Threshold)
 		if err != nil {
 			return nil, errors.Wrap(err, "root signature verification failed")
 		}
+		// 1.4. **Check for a rollback attack.** The version number of the previous
+		// root metadata file must be less than or equal to the version number of this
+		// root metadata file. Effectively, this means checking that the version
+		// number signed in the current root metadata file is indeed N+1.
 		// both sets of validation succeeded set current root to next root
+		if root.Signed.Version > nextRoot.Signed.Version {
+			return nil, errRollbackAttack
+		}
+		// 1.6. Set the previous to the current root metadata file.
 		root = nextRoot
 	}
+	// 	1.8. **Check for a freeze attack.** The latest known time should be lower
+	// than the expiration timestamp in the current root metadata file.
+	if time.Now().After(root.Signed.Expires) {
+		return nil, errFreezeAttack
+	}
+	// Note for section 5.1.1.9 we always replace the target/snapshot roles
+	// with version from notary
 	return root, nil
 }
 
-func (rs *repoMan) getKeys(r *Root, sigs []Signature) map[keyID]Key {
-	result := make(map[keyID]Key)
-	for _, sig := range sigs {
-		k, ok := r.keys()[sig.KeyID]
-		if ok {
-			result[sig.KeyID] = k
-		}
-	}
-	return result
-}
-
+// Timestamp role processing section 5.2 through 5.2.3 in the TUF spec.
 func (rs *repoMan) refreshTimestamp(root *Root) (*Timestamp, error) {
-	previous, err := rs.repo.timestamp()
-	if err != nil {
-		return nil, errors.Wrap(err, "fetching local timestamp")
-	}
-
+	// 	2. **Download the timestamp metadata file**, up to Y number of bytes
+	// (because the size is unknown.) The value for Y is set by the authors of the
+	// application using TUF. For example, Y may be tens of kilobytes. The
+	// filename used to download the timestamp metadata file is of the fixed form
+	// FILENAME.EXT (e.g., timestamp.json).
 	remote, err := rs.notary.timestamp()
 	if err != nil {
 		return nil, errors.Wrap(err, "fetching remote timestamp")
 	}
-
-	// check signature of the remote timestamp to make sure it hasn't been
-	// comprimised
+	// 2.1. **Check signatures.** The timestamp metadata file must have been
+	// signed by a threshold of keys specified in the root metadata file.
 	keys := rs.getKeys(root, remote.Signatures)
 	threshold := root.Signed.Roles[roleTimestamp].Threshold
 	err = rs.verifySignatures(remote.Signed, keys, remote.Signatures, threshold)
 	if err != nil {
 		return nil, errors.Wrap(err, "signature validation failed for timestamp")
 	}
-	// check for rollback attack
-	if previous.Signed.Version > remote.Signed.Version {
-		return nil, errors.Errorf("previous timestamp version %q is after current timestamp version %q", previous.Signed.Version, remote.Signed.Version)
+	previous, err := rs.repo.timestamp()
+	if err != nil {
+		return nil, errors.Wrap(err, "fetching local timestamp")
 	}
-	// check for freeze attack
+	// 2.2. **Check for a rollback attack.** The version number of the previous
+	// timestamp metadata file, if any, must be less than or equal to the version
+	// number of this timestamp metadata file.
+	if previous.Signed.Version > remote.Signed.Version {
+		return nil, errRollbackAttack
+	}
+	// 2.3. **Check for a freeze attack.** The latest known time should be lower
+	// than the expiration timestamp in this metadata file.
 	if time.Now().After(remote.Signed.Expires) {
-		return nil, errors.New("current timestamp expired")
+		return nil, errFreezeAttack
 	}
 	return remote, nil
 }
 
+// Snapshot processing section 5.3 through 5.3.3.2 in the TUF spec
 func (rs *repoMan) refreshSnapshot(root *Root, timestamp *Timestamp) (*Snapshot, error) {
-	previous, err := rs.repo.snapshot()
-	if err != nil {
-		return nil, errors.Wrap(err, "fetching local snapshot")
-	}
+	// 3. **Download and check the snapshot metadata file**, up to the number of
+	// bytes specified in the timestamp metadata file.
+	// If consistent snapshots are not used (see Section 7), then the filename
+	// used to download the snapshot metadata file is of the fixed form
+	// FILENAME.EXT (e.g., snapshot.json).
+	// Otherwise, the filename is of the form VERSION.FILENAME.EXT (e.g.,
+	// 42.snapshot.json), where VERSION is the version number of the snapshot
+	// metadata file listed in the timestamp metadata file.  In either case,
+	// the client MUST write the file to non-volatile storage as
+	// FILENAME.EXT.
+	//
+	// 3.1. **Check against timestamp metadata.** The hashes, and version number
+	// of this metadata file MUST match the timestamp metadata.
 	fim, ok := timestamp.Signed.Meta[roleSnapshot]
 	if !ok {
 		return nil, errors.New("expected snapshot metadata was missing from timestamp role")
 	}
-	// hashes and length from timestamp role are used to insure the
-	// the integrity of the snapshot role
 	var ssOpts []func() interface{}
 	ssOpts = append(ssOpts, expectedSize(int64(fim.Length)))
 	hash, ok := fim.Hashes[hashSHA256]
@@ -356,30 +407,61 @@ func (rs *repoMan) refreshSnapshot(root *Root, timestamp *Timestamp) (*Snapshot,
 	if err != nil {
 		return nil, errors.Wrap(err, "fetching remote snapshot")
 	}
+	// 3.2. **Check signatures.** The snapshot metadata file MUST have been signed
+	// by a threshold of keys specified in the previous root metadata file.
 	keys := rs.getKeys(root, current.Signatures)
 	threshold := root.Signed.Roles[roleSnapshot].Threshold
 	err = rs.verifySignatures(current.Signed, keys, current.Signatures, threshold)
 	if err != nil {
 		return nil, errors.Wrap(err, "signature validation failed for snapshot")
 	}
+	previous, err := rs.repo.snapshot()
+	if err != nil {
+		return nil, errors.Wrap(err, "fetching local snapshot")
+	}
+	// 3.3. **Check for a rollback attack.**
 	if previous.Signed.Version > current.Signed.Version {
-		return nil, errors.Errorf("previous snapshot version %q is after current version %q",
-			previous.Signed.Version,
-			current.Signed.Version,
-		)
+		return nil, errRollbackAttack
 	}
+	// 3.3.3. The version number of the targets metadata file, and all delegated
+	// targets metadata files (if any), in the previous snapshot metadata file, if
+	// any, MUST be less than or equal to its version number in this snapshot
+	// metadata file. Furthermore, any targets metadata filename that was listed
+	// in the previous snapshot metadata file, if any, MUST continue to be listed
+	// in this snapshot metadata file.
+	targets, err := rs.repo.timestamp()
+	if err != nil {
+		return nil, errors.Wrap(err, "fetching target for snapshot validation")
+	}
+	if targets.Signed.Version > current.Signed.Version {
+		return nil, errRollbackAttack
+	}
+	// 3.4. **Check for a freeze attack.** The latest known time should be lower
+	// than the expiration timestamp in this metadata file.
 	if time.Now().After(current.Signed.Expires) {
-		return nil, errors.New("current snapshot expired")
+		return nil, errFreezeAttack
 	}
-
 	return current, nil
 }
 
+// Targets processing section 5.4 through 5.5.2 in the TUF spec
 func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, string, error) {
-	previous, err := rs.repo.targets()
-	if err != nil {
-		return nil, "", errors.Wrap(err, "fetching local targets")
-	}
+	// 4. **Download and check the top-level targets metadata file**, up to either
+	// the number of bytes specified in the snapshot metadata file, or some
+	// Z number of bytes. The value for Z is set by the authors of the application
+	// using TUF. For example, Z may be tens of kilobytes.
+	// If consistent snapshots are not used (see Section 7), then the filename
+	// used to download the targets metadata file is of the fixed form
+	// FILENAME.EXT (e.g., targets.json).
+	// Otherwise, the filename is of the form VERSION.FILENAME.EXT (e.g.,
+	// 42.targets.json), where VERSION is the version number of the targets
+	// metadata file listed in the snapshot metadata file.
+	// In either case, the client MUST write the file to non-volatile storage as
+	// FILENAME.EXT.
+	// 	4.1. **Check against snapshot metadata.** The hashes (if any), and version
+	// number of this metadata file MUST match the snapshot metadata. This is
+	// done, in part, to prevent a mix-and-match attack by man-in-the-middle
+	// attackers.
 	fim, ok := snapshot.Signed.Meta[roleTargets]
 	if !ok {
 		return nil, "", errors.New("missing target metadata in snapshot")
@@ -398,19 +480,31 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, str
 	if err != nil {
 		return nil, "", errors.Wrap(err, "retrieving timestamp from notary")
 	}
+	// 4.2. **Check for an arbitrary software attack.** This metadata file MUST
+	// have been signed by a threshold of keys specified in the latest root
+	// metadata file.
 	keys := rs.getKeys(root, current.Signatures)
 	threshold := root.Signed.Roles[roleTargets].Threshold
 	err = rs.verifySignatures(current.Signed, keys, current.Signatures, threshold)
 	if err != nil {
 		return nil, "", errors.Wrap(err, "signature verification for targets failed")
 	}
+	previous, err := rs.repo.targets()
+	if err != nil {
+		return nil, "", errors.Wrap(err, "fetching local targets")
+	}
+	// 4.3. **Check for a rollback attack.** The version number of the previous
+	// targets metadata file, if any, MUST be less than or equal to the version
+	// number of this targets metadata file.
 	if previous.Signed.Version > current.Signed.Version {
-		return nil, "", errors.New("previous target has a version later than the current target")
+		return nil, "", errRollbackAttack
 	}
+	// 4.4. **Check for a freeze attack.** The latest known time should be lower
+	// than the expiration timestamp in this metadata file.
 	if time.Now().After(current.Signed.Expires) {
-		return nil, "", errors.New("current targets expired")
+		return nil, "", errFreezeAttack
 	}
-
+	// If we have a new version of the target download it.
 	var stagedPath string
 	if current.Signed.Version > previous.Signed.Version {
 		stagedPath, err = rs.stageTarget(current.Signed.Targets)
@@ -419,6 +513,17 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, str
 		}
 	}
 	return current, stagedPath, nil
+}
+
+func (rs *repoMan) getKeys(r *Root, sigs []Signature) map[keyID]Key {
+	result := make(map[keyID]Key)
+	for _, sig := range sigs {
+		k, ok := r.keys()[sig.KeyID]
+		if ok {
+			result[sig.KeyID] = k
+		}
+	}
+	return result
 }
 
 func (rs *repoMan) stageTarget(tgts map[targetNameType]FileIntegrityMeta) (string, error) {
