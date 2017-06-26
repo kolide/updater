@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"reflect"
 	"time"
@@ -158,8 +157,8 @@ func (rs *repoMan) save(backupTag string) (err error) {
 func (rs *repoMan) backupRoles(tag string) error {
 	roles := []role{roleRoot, roleTargets, roleSnapshot, roleTimestamp}
 	for _, r := range roles {
-		source := path.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.json", r))
-		destination := path.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.%s.json", r, tag))
+		source := filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.json", r))
+		destination := filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.%s.json", r, tag))
 		err := os.Rename(source, destination)
 		if err != nil {
 			return errors.Wrap(err, "backing up role")
@@ -171,8 +170,8 @@ func (rs *repoMan) backupRoles(tag string) error {
 func (rs *repoMan) restoreRoles(tag string) error {
 	roles := []role{roleRoot, roleTargets, roleSnapshot, roleTimestamp}
 	for _, r := range roles {
-		destination := path.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.json", r))
-		source := path.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.%s.json", r, tag))
+		destination := filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.json", r))
+		source := filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.%s.json", r, tag))
 		_, err := os.Stat(source)
 		if os.IsNotExist(err) {
 			continue
@@ -193,7 +192,7 @@ func (rs *repoMan) restoreRoles(tag string) error {
 func (rs *repoMan) deleteBackupRoles(tag string) error {
 	roles := []role{roleRoot, roleTargets, roleSnapshot, roleTimestamp}
 	for _, r := range roles {
-		backupFilePath := path.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.%s.json", r, tag))
+		backupFilePath := filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.%s.json", r, tag))
 		fs, err := os.Stat(backupFilePath)
 		if os.IsNotExist(err) {
 			continue
@@ -212,7 +211,7 @@ func (rs *repoMan) deleteBackupRoles(tag string) error {
 }
 
 func (rs *repoMan) saveRole(r role, js []byte) error {
-	fs, err := os.OpenFile(path.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.json", r)), os.O_CREATE|os.O_WRONLY, 0644)
+	fs, err := os.OpenFile(filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.json", r)), os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return errors.Wrap(err, "saving role file")
 	}
@@ -471,7 +470,7 @@ func (rs *repoMan) downloadTarget(client *http.Client, target targetNameType, fi
 		return "", errors.Wrap(err, "target verification failed")
 	}
 	// our target is valid so write it to staging
-	stagingPath := path.Join(rs.settings.StagingPath, string(target))
+	stagingPath := filepath.Join(rs.settings.StagingPath, string(target))
 	// TODO: this needs to tested with Windows
 	// find out if any subdirectories need to be created
 	fullDir := filepath.Dir(stagingPath)

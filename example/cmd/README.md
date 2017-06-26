@@ -32,7 +32,7 @@ target to be published immediately.
 $ notary add kolide/greeter/darwin latest/target myfile.tgz -p
 ```
 
-6. Upload the files you added to notary to the mirror. In a production environment this would be something like a public s3 bucket or static file server. 
+6. Upload the files you added to notary to the mirror. In a production environment this would be something like a public s3 bucket or static file server.
 In this example, you just have to add it to the `filerepo/$GUN` folder. The example will server the path on port 8888.
 ```
 ├── README.md
@@ -66,15 +66,15 @@ or manually with curl:
   ```
 8. Define your settings in the example program.
 
-  ``` go
+  ```Go
   settings := updater.Settings{
-    LocalRepoPath:      path.Join(baseDir, "repo"),
-    NotaryURL:          "https://notary-server:4443",
-    StagingPath:        path.Join(baseDir, "staging"),
-    GUN:                "kolide/greeter/darwin",
-    TargetName:         "latest/target",
-    InsecureSkipVerify: true,
-    MirrorURL:          "https://storage.googleapis.com/kolide_test_mirror",
+      LocalRepoPath:      filepath.Join(baseDir, "repo"),
+      NotaryURL:          "https://notary-server:4443",
+      StagingPath:        filepath.Join(baseDir, "staging"),
+      GUN:                "kolide/greeter/darwin",
+      TargetName:         "latest/target",
+      InsecureSkipVerify: true,
+      MirrorURL:          "https://storage.googleapis.com/kolide_test_mirror",
   }
   ```
 9. Run it! Note in this example the repo and staging directory are located relative

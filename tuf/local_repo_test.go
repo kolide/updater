@@ -6,7 +6,7 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"path"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -23,7 +23,7 @@ func setupLocalTests(t *testing.T) string {
 		func() {
 			buff, err := test.Asset(fmt.Sprintf("test/data/%s.json", r))
 			require.Nil(t, err)
-			f, err := os.OpenFile(path.Join(baseDir, fmt.Sprintf("%s.json", r)), os.O_CREATE|os.O_WRONLY, 0644)
+			f, err := os.OpenFile(filepath.Join(baseDir, fmt.Sprintf("%s.json", r)), os.O_CREATE|os.O_WRONLY, 0644)
 			require.Nil(t, err)
 			defer f.Close()
 			_, err = io.Copy(f, bytes.NewBuffer(buff))
