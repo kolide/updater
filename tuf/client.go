@@ -48,6 +48,10 @@ func (c *Client) Update() (files map[targetNameType]FileIntegrityMeta, latest bo
 		return nil, latest, errors.Wrap(err, "refreshing state")
 	}
 
+	if err := c.manager.save(getTag()); err != nil {
+		return nil, latest, errors.Wrap(err, "unable to save tuf repo state")
+	}
+
 	ff := make(chan map[targetNameType]FileIntegrityMeta)
 	c.manager.actionc <- func() {
 		ff <- c.manager.targets.Signed.Targets
@@ -63,7 +67,7 @@ func (c *Client) Download(targetName string, destination io.Writer) error {
 	}
 	currentMeta, ok := files[targetNameType(targetName)]
 	if !ok {
-		// return errors.Errorf("targetName %s not found", targetName)
+		return errors.Errorf("targetName %s not found", targetName)
 	}
 	mirrorURL, err := url.Parse(c.manager.settings.MirrorURL)
 	if err != nil {
