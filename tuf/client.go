@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"strconv"
 
 	"github.com/pkg/errors"
 )
@@ -91,13 +90,8 @@ func (c *Client) Download(targetName string, destination io.Writer) error {
 		return errors.Errorf("get target returned %q", resp.Status)
 	}
 
-	size, err := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 0)
-	if err != nil {
-		return errors.Wrap(err, "getting file size from Content-Length header")
-	}
-
-	stream := io.LimitReader(resp.Body, size)
-	if err := currentMeta.verifyIO(stream, size); err != nil {
+	stream := io.LimitReader(resp.Body, int64(currentMeta.Length))
+	if err := currentMeta.verify(stream); err != nil {
 		return err
 	}
 

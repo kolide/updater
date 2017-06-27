@@ -124,10 +124,10 @@ func (u *Updater) Stop() {
 func (u *Updater) loop() {
 	ticker := time.NewTicker(u.checkFrequency).C
 	for {
-		stagingPath, err := tuf.GetStagedPath(&u.settings)
-		if err != nil || stagingPath != "" {
-			u.notificationHandler(stagingPath, err)
-		}
+		// stagingPath, err := tuf.GetStagedPath(&u.settings)
+		// if err != nil || stagingPath != "" {
+		// 	u.notificationHandler(stagingPath, err)
+		// }
 		select {
 		case <-ticker:
 		case done := <-u.done:

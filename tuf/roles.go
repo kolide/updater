@@ -2,7 +2,6 @@ package tuf
 
 import (
 	"bytes"
-	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
@@ -216,60 +215,6 @@ func (fim FileIntegrityMeta) verify(rdr io.Reader) error {
 		if !bytes.Equal(h.valid, h.h.Sum(nil)) {
 			return errHashIncorrect
 		}
-	}
-	return nil
-}
-
-func (fim FileIntegrityMeta) verifyIO(r io.Reader, size int64) error {
-	if size != int64(fim.Length) {
-		return errors.New("target length is incorrect")
-	}
-	hashes := make(map[hashingMethod]hash.Hash, len(fim.Hashes))
-	for algo, _ := range fim.Hashes {
-		var h hash.Hash
-		switch algo {
-		case hashSHA256:
-			h = sha256.New()
-		case hashSHA512:
-			h = sha512.New()
-		default:
-			return errors.Errorf("unsupported hash algorithm %q", algo)
-		}
-		hashes[algo] = h
-		r = io.TeeReader(r, h)
-	}
-
-	n, err := io.Copy(ioutil.Discard, r)
-	if err != nil {
-		return errors.Wrap(err, "copying fim data")
-	}
-
-	// create a new FIM to verify against expected
-	actual := FileIntegrityMeta{
-		Length: int(n),
-		Hashes: make(map[hashingMethod]string, len(hashes)),
-	}
-
-	for hashAlgorithm, h := range hashes {
-		hh := h.Sum(nil)
-		actual.Hashes[hashAlgorithm] = string(hh)
-	}
-
-	var checked bool
-	for typ, hash := range fim.Hashes {
-		decoded, err := base64.StdEncoding.DecodeString(hash)
-		if err != nil {
-			return errors.Wrap(err, "failed to decode hash")
-		}
-		if h, ok := actual.Hashes[typ]; ok {
-			checked = true
-			if !hmac.Equal([]byte(h), decoded) {
-				return errors.New("wrong hash")
-			}
-		}
-	}
-	if !checked {
-		return errors.New("no common hash algorithm found")
 	}
 	return nil
 }
