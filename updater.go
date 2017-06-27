@@ -126,21 +126,29 @@ func (u *Updater) Stop() {
 }
 
 func (u *Updater) loop() {
+	var hash string
 	ticker := time.NewTicker(u.checkFrequency).C
 	for {
-		files, latest, err := u.client.Update()
+		files, _, err := u.client.Update()
 		if err != nil {
 			u.notificationHandler("", err)
 		}
 		target, ok := files[u.settings.TargetName]
 		if !ok {
-			// u.notificationHandler("", errors.New("no such target"))
+			u.notificationHandler("", errors.New("no such target"))
 		}
-		_ = target
-
-		// TODO check if hash has changed instead
-		latest = false
-		u.downloadIfNew(latest)
+		metaHash := func() string {
+			if h, ok := target.Hashes["sha256"]; ok {
+				return h
+			} else if h, ok := target.Hashes["sha512"]; ok {
+				return h
+			} else {
+				panic("no usable hash to compare")
+			}
+		}
+		h := metaHash()
+		u.downloadIfNew(hash, h)
+		hash = h
 
 		select {
 		case <-ticker:
@@ -153,8 +161,8 @@ func (u *Updater) loop() {
 	}
 }
 
-func (u *Updater) downloadIfNew(latest bool) {
-	if latest {
+func (u *Updater) downloadIfNew(old, new string) {
+	if old == "" || old == new {
 		return
 	}
 	dpath := filepath.Join(u.settings.StagingPath, string(u.settings.TargetName))
