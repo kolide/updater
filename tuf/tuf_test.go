@@ -173,121 +173,6 @@ func setupTufRemote(version int, notfoundVersion string, t *testing.T) (*httptes
 	return notary, mirror
 }
 
-// these tests work on versioned role files and targets that we create interactively
-// using notary and then save them in bin data so we can mimic key rotations,
-// updating distributables etc.
-func TestGetStagedPathsNoUpdates(t *testing.T) {
-	localRepoPath, stagingPath := setupTufLocal(0, t)
-	defer os.RemoveAll(localRepoPath)
-	defer os.RemoveAll(stagingPath)
-	notary, mirror := setupTufRemote(0, "2", t)
-	defer notary.Close()
-	defer mirror.Close()
-	settings := Settings{
-		LocalRepoPath:      localRepoPath,
-		StagingPath:        stagingPath,
-		MirrorURL:          mirror.URL,
-		NotaryURL:          notary.URL,
-		InsecureSkipVerify: true,
-		GUN:                "kolide/agent/linux",
-		Client: &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		},
-	}
-
-	stagedPath, err := GetStagedPath(&settings)
-	require.Nil(t, err)
-	require.Empty(t, stagedPath)
-}
-
-func TestGetStagedPathsWithUpdates(t *testing.T) {
-	localRepoPath, stagingPath := setupTufLocal(0, t)
-	defer os.RemoveAll(localRepoPath)
-	defer os.RemoveAll(stagingPath)
-	notary, mirror := setupTufRemote(1, "2", t)
-	defer notary.Close()
-	defer mirror.Close()
-	settings := Settings{
-		LocalRepoPath:      localRepoPath,
-		StagingPath:        stagingPath,
-		MirrorURL:          mirror.URL,
-		NotaryURL:          notary.URL,
-		InsecureSkipVerify: true,
-		GUN:                "kolide/agent/linux",
-		TargetName:         "somedir/target.0",
-		Client: &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		},
-	}
-
-	stagedPath, err := GetStagedPath(&settings)
-	require.Nil(t, err)
-	require.NotEmpty(t, stagedPath)
-	// make sure all the files we are supposed to create are there
-	files := []string{
-		filepath.Join(localRepoPath, "root.json"),
-		filepath.Join(localRepoPath, "timestamp.json"),
-		filepath.Join(localRepoPath, "snapshot.json"),
-		filepath.Join(localRepoPath, "targets.json"),
-	}
-
-	for _, f := range files {
-		fs, err := os.Stat(f)
-		require.False(t, os.IsNotExist(err))
-		require.NotNil(t, fs)
-	}
-}
-
-func TestWithRootKeyRotation(t *testing.T) {
-	localRepoPath, stagingPath := setupTufLocal(1, t)
-	defer os.RemoveAll(localRepoPath)
-	defer os.RemoveAll(stagingPath)
-	notary, mirror := setupTufRemote(2, "3", t)
-	defer notary.Close()
-	defer mirror.Close()
-	settings := Settings{
-		LocalRepoPath:      localRepoPath,
-		StagingPath:        stagingPath,
-		MirrorURL:          mirror.URL,
-		NotaryURL:          notary.URL,
-		InsecureSkipVerify: true,
-		GUN:                "kolide/agent/linux",
-		Client: &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		},
-	}
-
-	stagedPath, err := GetStagedPath(&settings)
-	require.Nil(t, err)
-	require.Empty(t, stagedPath)
-
-	// make sure all the files we are supposed to create are there
-	files := []string{
-		filepath.Join(localRepoPath, "root.json"),
-		filepath.Join(localRepoPath, "timestamp.json"),
-		filepath.Join(localRepoPath, "snapshot.json"),
-		filepath.Join(localRepoPath, "targets.json"),
-	}
-
-	for _, f := range files {
-		fs, err := os.Stat(f)
-		require.False(t, os.IsNotExist(err))
-		require.NotNil(t, fs)
-	}
-}
-
 func TestBackupAndRecover(t *testing.T) {
 	localRepoPath, stagingPath := setupTufLocal(0, t)
 	defer os.RemoveAll(localRepoPath)
@@ -367,6 +252,131 @@ func TestBackupAndRecover(t *testing.T) {
 	}
 }
 
+// these tests work on versioned role files and targets that we create interactively
+// using notary and then save them in bin data so we can mimic key rotations,
+// updating distributables etc.
+func TestClientNoUpdates(t *testing.T) {
+	localRepoPath, stagingPath := setupTufLocal(0, t)
+	defer os.RemoveAll(localRepoPath)
+	defer os.RemoveAll(stagingPath)
+	notary, mirror := setupTufRemote(0, "2", t)
+	defer notary.Close()
+	defer mirror.Close()
+	settings := Settings{
+		LocalRepoPath:      localRepoPath,
+		StagingPath:        stagingPath,
+		MirrorURL:          mirror.URL,
+		NotaryURL:          notary.URL,
+		InsecureSkipVerify: true,
+		GUN:                "kolide/agent/linux",
+		Client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
+	}
+
+	client, err := NewClient(&settings)
+	require.Nil(t, err)
+
+	_, latest, err := client.Update()
+	require.Nil(t, err)
+	require.True(t, latest)
+}
+
+func TestClientWithUpdates(t *testing.T) {
+	localRepoPath, stagingPath := setupTufLocal(0, t)
+	defer os.RemoveAll(localRepoPath)
+	defer os.RemoveAll(stagingPath)
+	notary, mirror := setupTufRemote(1, "2", t)
+	defer notary.Close()
+	defer mirror.Close()
+	settings := Settings{
+		LocalRepoPath:      localRepoPath,
+		StagingPath:        stagingPath,
+		MirrorURL:          mirror.URL,
+		NotaryURL:          notary.URL,
+		InsecureSkipVerify: true,
+		GUN:                "kolide/agent/linux",
+		TargetName:         "somedir/target.0",
+		Client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
+	}
+
+	client, err := NewClient(&settings)
+	require.Nil(t, err)
+
+	_, latest, err := client.Update()
+	require.Nil(t, err)
+	require.False(t, latest)
+
+	// make sure all the files we are supposed to create are there
+	files := []string{
+		filepath.Join(localRepoPath, "root.json"),
+		filepath.Join(localRepoPath, "timestamp.json"),
+		filepath.Join(localRepoPath, "snapshot.json"),
+		filepath.Join(localRepoPath, "targets.json"),
+	}
+
+	for _, f := range files {
+		fs, err := os.Stat(f)
+		require.False(t, os.IsNotExist(err))
+		require.NotNil(t, fs)
+	}
+}
+
+func TestWithRootKeyRotation(t *testing.T) {
+	localRepoPath, stagingPath := setupTufLocal(1, t)
+	defer os.RemoveAll(localRepoPath)
+	defer os.RemoveAll(stagingPath)
+	notary, mirror := setupTufRemote(2, "3", t)
+	defer notary.Close()
+	defer mirror.Close()
+	settings := Settings{
+		LocalRepoPath:      localRepoPath,
+		StagingPath:        stagingPath,
+		MirrorURL:          mirror.URL,
+		NotaryURL:          notary.URL,
+		InsecureSkipVerify: true,
+		GUN:                "kolide/agent/linux",
+		Client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
+	}
+
+	client, err := NewClient(&settings)
+	require.Nil(t, err)
+
+	_, latest, err := client.Update()
+	require.Nil(t, err)
+	require.True(t, latest)
+
+	// make sure all the files we are supposed to create are there
+	files := []string{
+		filepath.Join(localRepoPath, "root.json"),
+		filepath.Join(localRepoPath, "timestamp.json"),
+		filepath.Join(localRepoPath, "snapshot.json"),
+		filepath.Join(localRepoPath, "targets.json"),
+	}
+
+	for _, f := range files {
+		fs, err := os.Stat(f)
+		require.False(t, os.IsNotExist(err))
+		require.NotNil(t, fs)
+	}
+}
+
 func TestWithTimestampKeyRotation(t *testing.T) {
 	localRepoPath, stagingPath := setupTufLocal(3, t)
 	defer os.RemoveAll(localRepoPath)
@@ -390,9 +400,12 @@ func TestWithTimestampKeyRotation(t *testing.T) {
 		},
 	}
 
-	stagedPath, err := GetStagedPath(&settings)
+	client, err := NewClient(&settings)
 	require.Nil(t, err)
-	require.Empty(t, stagedPath)
+
+	_, latest, err := client.Update()
+	require.Nil(t, err)
+	require.True(t, latest)
 
 	// make sure all the files we are supposed to create are there
 	files := []string{
