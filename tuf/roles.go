@@ -14,11 +14,6 @@ import (
 	"github.com/pkg/errors"
 )
 
-// targetNameType is the path to the target. Mirror host + targetNameType is the
-// download location of the file. For example if the mirror is https://releases.kolide.co
-// and the targetNameType is kolide/agent/linux/installer then you'd download
-// https://releases.kolide.co/kolide/agent/linux/installer
-type targetNameType string
 type keyID string
 type hashingMethod string
 type role string
@@ -150,11 +145,11 @@ type Targets struct {
 
 // SignedTarget specifics of the Targets
 type SignedTarget struct {
-	Type        string                               `json:"_type"`
-	Delegations Delegations                          `json:"delegations"`
-	Expires     time.Time                            `json:"expires"`
-	Targets     map[targetNameType]FileIntegrityMeta `json:"targets"`
-	Version     int                                  `json:"version"`
+	Type        string                       `json:"_type"`
+	Delegations Delegations                  `json:"delegations"`
+	Expires     time.Time                    `json:"expires"`
+	Targets     map[string]FileIntegrityMeta `json:"targets"`
+	Version     int                          `json:"version"`
 }
 
 func (sr SignedTarget) canonicalJSON() ([]byte, error) {
@@ -176,7 +171,7 @@ func (sig *Signature) base64Decoded() ([]byte, error) {
 // the binary footprint of the file hasn't been tampered with
 type FileIntegrityMeta struct {
 	Hashes map[hashingMethod]string `json:"hashes"`
-	Length int                      `json:"length"`
+	Length int64                    `json:"length"`
 }
 
 type hashInfo struct {
@@ -208,7 +203,7 @@ func (fim FileIntegrityMeta) verify(rdr io.Reader) error {
 	if err != nil {
 		return err
 	}
-	if length != int64(fim.Length) {
+	if length != fim.Length {
 		return errLengthIncorrect
 	}
 	for _, h := range hashes {

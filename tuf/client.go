@@ -38,7 +38,7 @@ func NewClient(settings *Settings) (*Client, error) {
 	return &Client{manager: manager}, nil
 }
 
-func (c *Client) Update() (files map[targetNameType]FileIntegrityMeta, latest bool, err error) {
+func (c *Client) Update() (files map[string]FileIntegrityMeta, latest bool, err error) {
 	latest, err = c.manager.refresh()
 	if err != nil {
 		return nil, latest, errors.Wrap(err, "refreshing state")
@@ -54,12 +54,11 @@ func (c *Client) Update() (files map[targetNameType]FileIntegrityMeta, latest bo
 
 func (c *Client) Download(targetName string, destination io.Writer) error {
 	files := c.manager.getLocalTargets()
-	target := targetNameType(targetName)
-	fim, ok := files[target]
+	fim, ok := files[targetName]
 	if !ok {
 		return errNoSuchTarget
 	}
-	if err := c.manager.downloadTarget(target, &fim, destination); err != nil {
+	if err := c.manager.downloadTarget(targetName, &fim, destination); err != nil {
 		return errors.Wrap(err, "downloading target")
 	}
 	return nil

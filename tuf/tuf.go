@@ -51,7 +51,7 @@ type Settings struct {
 	MaxResponseSize int64
 	// TargetName is the name of the target to retreive. Typically this would
 	// denote a version, like 'v2' or 'latest'
-	TargetName targetNameType
+	TargetName string
 	// Client is the one and only http client
 	Client *http.Client
 }
@@ -392,7 +392,7 @@ func (rs *repoMan) refreshSnapshot(root *Root, timestamp *Timestamp) (*Snapshot,
 		return nil, errors.New("expected snapshot metadata was missing from timestamp role")
 	}
 	var ssOpts []func() interface{}
-	ssOpts = append(ssOpts, expectedSize(int64(fim.Length)))
+	ssOpts = append(ssOpts, expectedSize(fim.Length))
 	hash, ok := fim.Hashes[hashSHA256]
 	if ok {
 		ssOpts = append(ssOpts, testSHA256(hash))
@@ -466,7 +466,7 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, boo
 		return nil, latest, errors.New("missing target metadata in snapshot")
 	}
 	var opts []func() interface{}
-	opts = append(opts, expectedSize(int64(fim.Length)))
+	opts = append(opts, expectedSize(fim.Length))
 	hash, ok := fim.Hashes[hashSHA256]
 	if ok {
 		opts = append(opts, testSHA256(hash))
@@ -535,7 +535,7 @@ func (rs *repoMan) getKeys(r *Root, sigs []Signature) map[keyID]Key {
 // metadata file found earlier in step 4.
 // In either case, the client MUST write the file to non-volatile storage as
 // FILENAME.EXT.
-func (rs *repoMan) downloadTarget(target targetNameType, fim *FileIntegrityMeta, destination io.Writer) error {
+func (rs *repoMan) downloadTarget(target string, fim *FileIntegrityMeta, destination io.Writer) error {
 	// we expect our mirrored distribution targets to be located
 	// at https://mirror.com/gun/targetname
 	mirrorURL, err := url.Parse(rs.settings.MirrorURL)
@@ -561,7 +561,7 @@ func (rs *repoMan) downloadTarget(target targetNameType, fim *FileIntegrityMeta,
 	if resp.StatusCode != http.StatusOK {
 		return errors.Errorf("get target returned %q", resp.Status)
 	}
-	stream := io.LimitReader(resp.Body, int64(fim.Length))
+	stream := io.LimitReader(resp.Body, fim.Length)
 	if err := fim.verify(io.TeeReader(stream, destination)); err != nil {
 		return errors.Wrap(err, "verifying current target download")
 	}
@@ -569,8 +569,8 @@ func (rs *repoMan) downloadTarget(target targetNameType, fim *FileIntegrityMeta,
 	return nil
 }
 
-func (rs *repoMan) getLocalTargets() map[targetNameType]FileIntegrityMeta {
-	files := make(chan map[targetNameType]FileIntegrityMeta)
+func (rs *repoMan) getLocalTargets() map[string]FileIntegrityMeta {
+	files := make(chan map[string]FileIntegrityMeta)
 	rs.actionc <- func() {
 		if rs.targets != nil {
 			files <- rs.targets.Signed.Targets
