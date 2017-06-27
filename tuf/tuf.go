@@ -661,7 +661,6 @@ func (rs *repoMan) verifySignatures(role marshaller, keys map[keyID]Key, sigs []
 			return nil
 		}
 	}
-	// boo! we did not get meet the threshold
 	return errSignatureThresholdNotMet
 }
 
