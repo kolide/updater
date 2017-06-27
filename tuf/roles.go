@@ -5,10 +5,13 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/base64"
+	"errors"
+	"hash"
+	"io"
+	"io/ioutil"
 	"time"
 
 	cjson "github.com/docker/go/canonical/json"
-	"github.com/pkg/errors"
 )
 
 // targetNameType is the path to the target. Mirror host + targetNameType is the
@@ -176,33 +179,41 @@ type FileIntegrityMeta struct {
 	Length int                      `json:"length"`
 }
 
-func (fim FileIntegrityMeta) verify(target []byte, size int64) error {
-	if size != int64(fim.Length) {
-		return errors.New("target length is incorrect")
-	}
-	for algo, hash := range fim.Hashes {
-		decoded, err := base64.StdEncoding.DecodeString(hash)
+type hashInfo struct {
+	h     hash.Hash
+	valid []byte
+}
+
+// File hash and length validation per TUF 5.5.2
+func (fim FileIntegrityMeta) verify(rdr io.Reader) error {
+	var hashes []hashInfo
+	for algo, expectedHash := range fim.Hashes {
+		var hashFunc hash.Hash
+		valid, err := base64.StdEncoding.DecodeString(expectedHash)
 		if err != nil {
-			return errors.Wrap(err, "failed to decode hash")
+			return errors.New("invalid hash in verify")
 		}
-		var hashFunc func(b []byte) []byte
 		switch algo {
 		case hashSHA256:
-			hashFunc = func(b []byte) []byte {
-				result := sha256.Sum256(b)
-				return result[:]
-			}
+			hashFunc = sha256.New()
 		case hashSHA512:
-			hashFunc = func(b []byte) []byte {
-				result := sha512.Sum512(b)
-				return result[:]
-			}
+			hashFunc = sha512.New()
 		default:
-			return errors.Errorf("unsupported hash algorithm %q", algo)
+			return errUnsupportedHash
 		}
-		targetHash := hashFunc(target)
-		if !bytes.Equal(decoded, targetHash) {
-			return errors.New("hash mismatch")
+		rdr = io.TeeReader(rdr, hashFunc)
+		hashes = append(hashes, hashInfo{hashFunc, valid})
+	}
+	length, err := io.Copy(ioutil.Discard, rdr)
+	if err != nil {
+		return err
+	}
+	if length != int64(fim.Length) {
+		return errLengthIncorrect
+	}
+	for _, h := range hashes {
+		if !bytes.Equal(h.valid, h.h.Sum(nil)) {
+			return errHashIncorrect
 		}
 	}
 	return nil

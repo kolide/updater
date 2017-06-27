@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
@@ -16,8 +17,12 @@ import (
 )
 
 var (
-	errRollbackAttack = errors.New("role version is greater than previous role version")
-	errFreezeAttack   = errors.New("current time is after role expiration timestamp")
+	errRollbackAttack  = errors.New("role version is greater than previous role version")
+	errFreezeAttack    = errors.New("current time is after role expiration timestamp")
+	errUnsupportedHash = errors.New("unsupported hash alogorithm")
+	errHashIncorrect   = errors.New("file hash does not match")
+	errLengthIncorrect = errors.New("file length incorrect")
+	errNoSuchTarget    = errors.New("no such target")
 )
 
 // Settings various parameters needed to find updates
@@ -527,9 +532,11 @@ func (rs *repoMan) getKeys(r *Root, sigs []Signature) map[keyID]Key {
 }
 
 func (rs *repoMan) stageTarget(tgts map[targetNameType]FileIntegrityMeta) (string, error) {
+	// 5.1. If there is no targets metadata about this target, then report that
+	// there is no such target.
 	fim, ok := tgts[rs.settings.TargetName]
 	if !ok {
-		return "", errors.Errorf("No such target %q in %q", rs.settings.TargetName, rs.settings.GUN)
+		return "", errNoSuchTarget
 	}
 	stagePath, err := rs.downloadTarget(rs.client, rs.settings.TargetName, &fim)
 	if err != nil {
@@ -538,8 +545,21 @@ func (rs *repoMan) stageTarget(tgts map[targetNameType]FileIntegrityMeta) (strin
 	return stagePath, nil
 }
 
-// download target from mirror, if it passes validation write it to staging and cache
-// the location where it was written
+// 5.2. Otherwise, download the target (up to the number of bytes specified in
+// the targets metadata), and verify that its hashes match the targets
+// metadata. (We download up to this number of bytes, because in some cases,
+// the exact number is unknown. This may happen, for example, if an external
+// program is used to compute the root hash of a tree of targets files, and
+// this program does not provide the total size of all of these files.)
+// If consistent snapshots are not used (see Section 7), then the filename
+// used to download the target file is of the fixed form FILENAME.EXT (e.g.,
+// foobar.tar.gz).
+// Otherwise, the filename is of the form HASH.FILENAME.EXT (e.g.,
+// c14aeb4ac9f4a8fc0d83d12482b9197452f6adf3eb710e3b1e2b79e8d14cb681.foobar.tar.gz),
+// where HASH is one of the hashes of the targets file listed in the targets
+// metadata file found earlier in step 4.
+// In either case, the client MUST write the file to non-volatile storage as
+// FILENAME.EXT.
 func (rs *repoMan) downloadTarget(client *http.Client, target targetNameType, fim *FileIntegrityMeta) (string, error) {
 	// we expect our mirrored distribution targets to be located
 	// at https://mirror.com/gun/targetname
@@ -563,47 +583,37 @@ func (rs *repoMan) downloadTarget(client *http.Client, target targetNameType, fi
 	if resp.StatusCode != http.StatusOK {
 		return "", errors.Errorf("get target returned %q", resp.Status)
 	}
-	var buff bytes.Buffer
-	readFromMirror, err := io.Copy(&buff, resp.Body)
-	if err != nil {
-		return "", errors.Wrap(err, "reading target from mirror")
-
-	}
-
-	err = fim.verify(buff.Bytes(), readFromMirror)
-	if err != nil {
-		return "", errors.Wrap(err, "target verification failed")
-	}
-	// our target is valid so write it to staging
-	stagingPath := filepath.Join(rs.settings.StagingPath, string(target))
-	// TODO: this needs to tested with Windows
-	// find out if any subdirectories need to be created
-	fullDir := filepath.Dir(stagingPath)
-	fs, err := os.Stat(fullDir)
+	stagingFile := filepath.Join(rs.settings.StagingPath, string(target))
+	baseDir := filepath.Dir(stagingFile)
+	_, err = os.Stat(baseDir)
 	if os.IsNotExist(err) {
-		err = os.MkdirAll(fullDir, 0755)
+		err = os.MkdirAll(baseDir, 0755)
 		if err != nil {
-			return "", errors.Wrap(err, "making staging directory")
+			return "", errors.Wrap(err, "creating dir for target file")
 		}
 	}
-	// if the path exists make sure it's a directory
-	if fs != nil && !fs.IsDir() {
-		return "", errors.Errorf("staging location %q is not a directory", fullDir)
+	if err != nil {
+		return "", errors.Wrap(err, "error checking dir for target")
+	}
+	// Create a temp file to hold downloaded file. If validation is successful
+	// we'll rename it to the expected name, otherwise, we'll delete it.
+	fout, err := ioutil.TempFile(rs.settings.StagingPath, "temp")
+	if err != nil {
+		return "", errors.Wrap(err, "creating intermediate file to validate target")
+	}
+	defer fout.Close()
+	defer os.Remove(fout.Name())
+	// Hash and length validation
+	err = fim.verify(io.TeeReader(io.LimitReader(resp.Body, int64(fim.Length)), fout))
+	if err != nil {
+		return "", err
 	}
 
-	out, err := os.OpenFile(stagingPath, os.O_CREATE|os.O_WRONLY, 0644)
+	err = os.Rename(fout.Name(), stagingFile)
 	if err != nil {
-		return "", errors.Wrap(err, "creating staging file")
+		return "", errors.Wrap(err, "renaming temp file to staging file")
 	}
-	defer out.Close()
-	writtenToFile, err := io.Copy(out, &buff)
-	if err != nil {
-		return "", errors.Wrap(err, "writing target file to staging")
-	}
-	if writtenToFile != readFromMirror {
-		return "", errors.Errorf("file write incomplete for %q", target)
-	}
-	return stagingPath, nil
+	return stagingFile, nil
 }
 
 func (rs *repoMan) verifySignatures(role marshaller, keys map[keyID]Key, sigs []Signature, threshold int) error {
@@ -641,7 +651,6 @@ func (rs *repoMan) verifySignatures(role marshaller, keys map[keyID]Key, sigs []
 			return nil
 		}
 	}
-	// boo! we did not get meet the threshold
 	return errSignatureThresholdNotMet
 }
 
