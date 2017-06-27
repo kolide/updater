@@ -13,7 +13,10 @@ package updater
 import (
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/kolide/updater/tuf"
@@ -28,8 +31,10 @@ type Settings tuf.Settings
 type Updater struct {
 	settings            tuf.Settings
 	done                chan chan struct{}
+	actionc             chan func()
 	checkFrequency      time.Duration
 	notificationHandler NotificationHandler
+	client              *tuf.Client
 }
 
 // WithFrequency allows changing the frequency of update checks.
@@ -74,11 +79,32 @@ func Start(settings Settings, onUpdate NotificationHandler, opts ...Option) (*Up
 	if err != nil {
 		return nil, errors.Wrap(err, "creating updater")
 	}
+
+	// use a default HTTP Client if not set
+	if settings.Client == nil {
+		settings.Client = &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: settings.InsecureSkipVerify,
+				},
+				TLSHandshakeTimeout: 5 * time.Second,
+			},
+			Timeout: 5 * time.Second,
+		}
+	}
+
+	s := tuf.Settings(settings)
+	client, err := tuf.NewClient(&s)
+	if err != nil {
+		return nil, err
+	}
 	updater := Updater{
 		checkFrequency:      defaultCheckFrequency,
 		notificationHandler: onUpdate,
 		settings:            tuf.Settings(settings),
 		done:                make(chan chan struct{}),
+		actionc:             make(chan func()),
+		client:              client,
 	}
 	for _, opt := range opts {
 		opt(&updater)
@@ -92,37 +118,90 @@ func Start(settings Settings, onUpdate NotificationHandler, opts ...Option) (*Up
 
 // Stop will disables the update checker goroutine.
 func (u *Updater) Stop() {
+	u.client.Stop()
+
 	done := make(chan struct{})
 	u.done <- done
 	<-done
 }
 
 func (u *Updater) loop() {
-	if u.settings.Client == nil {
-		u.settings.Client = &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: u.settings.InsecureSkipVerify,
-				},
-				TLSHandshakeTimeout: 5 * time.Second,
-			},
-			Timeout: 5 * time.Second,
-		}
-	}
-
+	var hash string
 	ticker := time.NewTicker(u.checkFrequency).C
 	for {
-		stagingPath, err := tuf.GetStagedPath(&u.settings)
-		if err != nil || stagingPath != "" {
-			u.notificationHandler(stagingPath, err)
+		files, _, err := u.client.Update()
+		if err != nil {
+			u.notificationHandler("", err)
 		}
+		target, ok := files[u.settings.TargetName]
+		if !ok {
+			u.notificationHandler("", errors.New("no such target"))
+		}
+		metaHash := func() string {
+			if h, ok := target.Hashes["sha256"]; ok {
+				return h
+			} else if h, ok := target.Hashes["sha512"]; ok {
+				return h
+			} else {
+				return ""
+			}
+		}
+		h := metaHash()
+		u.downloadIfNew(hash, h)
+		hash = h
+
 		select {
 		case <-ticker:
+		case f := <-u.actionc:
+			f()
 		case done := <-u.done:
 			close(done)
 			return
 		}
 	}
+}
+
+func (u *Updater) downloadIfNew(old, new string) {
+	if old == "" || old == new {
+		return
+	}
+	dpath := filepath.Join(u.settings.StagingPath, string(u.settings.TargetName))
+	if err := os.MkdirAll(filepath.Dir(dpath), 0755); err != nil {
+		u.notificationHandler("", err)
+		return
+	}
+	destination, err := os.Create(dpath)
+	if err != nil {
+		u.notificationHandler("", err)
+		return
+	}
+	defer destination.Close()
+	if err := u.client.Download(string(u.settings.TargetName), destination); err != nil {
+		destination.Close()
+		os.Remove(dpath)
+		return
+	} else {
+		u.notificationHandler(dpath, nil)
+		return
+	}
+}
+
+func (u *Updater) Download(target string, destination io.Writer) error {
+	// The updater manages a local repository of files whenever the checkFrequency timer ticks.
+	// Whenever someone calls Download, we must refresh the same set of files, which would potentially result
+	// in a race condition, depending on how Download is called.
+	// To avoid multiple processes updating the same set of tuf files, we funnel all actions to a single
+	// goroutine.
+	errc := make(chan error)
+	u.actionc <- func() {
+		_, _, err := u.client.Update()
+		if err != nil {
+			errc <- err
+			return
+		}
+		errc <- u.client.Download(target, destination)
+	}
+	return <-errc
 }
 
 // Verify performs some preliminary checks on parameter.

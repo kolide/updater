@@ -1,6 +1,8 @@
 package updater
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -11,13 +13,17 @@ import (
 
 func TestNewOptions(t *testing.T) {
 	fakeDir, _ := os.Getwd()
+	s := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	s.StartTLS()
+	defer s.Close()
 	settings := Settings{
-		GUN:           "kolide/agent/linux",
-		LocalRepoPath: fakeDir,
-		StagingPath:   fakeDir,
-		MirrorURL:     "https://mirror.com",
-		NotaryURL:     "https://notary.com",
-		TargetName:    "latest",
+		GUN:                "kolide/agent/linux",
+		LocalRepoPath:      fakeDir,
+		StagingPath:        fakeDir,
+		MirrorURL:          "https://mirror.com",
+		NotaryURL:          s.URL,
+		TargetName:         "latest",
+		InsecureSkipVerify: true,
 	}
 	onUpdate := func(stagingPath string, err error) {}
 

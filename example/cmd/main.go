@@ -22,6 +22,7 @@ func main() {
 		flServerCerts = flag.String("server-certificates", "../../test/server", "path to folder with server certs. must be named cert.pem and key.pem respectively")
 		flGUN         = flag.String("gun", "kolide/greeter/darwin", "the globally unique identifier")
 		flBootstrap   = flag.Bool("bootstrap", false, "set up local repository for the GUN from the local notary-server")
+		flDownoad     = flag.String("download", "", "download a specific target")
 	)
 	flag.Parse()
 
@@ -87,6 +88,18 @@ func main() {
 		key, _ := filepath.Abs(filepath.Join(*flServerCerts, "key.pem"))
 		log.Fatal(http.ListenAndServeTLS(":8888", cert, key, nil))
 	}()
+
+	if *flDownoad != "" {
+		f, err := ioutil.TempFile(os.TempDir(), "osqueryd")
+		defer f.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+		fmt.Printf("downloading %s to %s\n", settings.TargetName, f.Name())
+		if err := update.Download("latest/target", f); err != nil {
+			log.Fatal(err)
+		}
+	}
 
 	fmt.Print("Hit enter to stop me: ")
 	fmt.Scanln()
