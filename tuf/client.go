@@ -2,9 +2,6 @@ package tuf
 
 import (
 	"io"
-	"net/http"
-	"net/url"
-	"path"
 
 	"github.com/pkg/errors"
 )
@@ -42,7 +39,7 @@ func NewClient(settings *Settings) (*Client, error) {
 }
 
 func (c *Client) Update() (files map[targetNameType]FileIntegrityMeta, latest bool, err error) {
-	latest, err = c.manager.refresSafe()
+	latest, err = c.manager.refresh()
 	if err != nil {
 		return nil, latest, errors.Wrap(err, "refreshing state")
 	}
@@ -57,37 +54,14 @@ func (c *Client) Update() (files map[targetNameType]FileIntegrityMeta, latest bo
 
 func (c *Client) Download(targetName string, destination io.Writer) error {
 	files := c.manager.getLocalTargets()
-	currentMeta, ok := files[targetNameType(targetName)]
+	target := targetNameType(targetName)
+	fim, ok := files[target]
 	if !ok {
-		return errors.Errorf("targetName %s not found", targetName)
+		return errNoSuchTarget
 	}
-	mirrorURL, err := url.Parse(c.manager.settings.MirrorURL)
-	if err != nil {
-		return errors.Wrap(err, "parse mirror url for download")
+	if err := c.manager.downloadTarget(target, &fim, destination); err != nil {
+		return errors.Wrap(err, "downloading target")
 	}
-
-	mirrorURL.Path = path.Join(mirrorURL.Path, c.manager.settings.GUN, targetName)
-	request, err := http.NewRequest(http.MethodGet, mirrorURL.String(), nil)
-	if err != nil {
-		return errors.Wrapf(err, "creating request to %s", mirrorURL.String())
-	}
-	request.Header.Add(cacheControl, cachePolicyNoStore)
-
-	resp, err := c.manager.client.Do(request)
-	if err != nil {
-		return errors.Wrap(err, "fetching target from mirror")
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return errors.Errorf("get target returned %q", resp.Status)
-	}
-
-	stream := io.LimitReader(resp.Body, int64(currentMeta.Length))
-	if err := currentMeta.verify(io.TeeReader(stream, destination)); err != nil {
-		return err
-	}
-
 	return nil
 }
 

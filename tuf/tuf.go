@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"reflect"
 	"time"
@@ -56,47 +56,6 @@ type Settings struct {
 	Client *http.Client
 }
 
-// GetStagedPath returns a the staging path of a target if it needs to be updated. The
-// target that will be checked is defined in settings. If validations pass but there is
-// not a new package to download, the string value returned will be empty.
-// These packages are validated and obtained according to The Update Framework
-// Spec https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt
-// Section 5.1 The Client Application
-func GetStagedPath(settings *Settings) (string, error) {
-	if settings.MaxResponseSize == 0 {
-		settings.MaxResponseSize = defaultMaxResponseSize
-	}
-	// check to see if Notary server is available
-	notary, err := newNotaryRepo(settings)
-	if err != nil {
-		return "", errors.Wrap(err, "creating notary client")
-	}
-	err = notary.ping()
-	if err != nil {
-		return "", errors.Wrap(err, "pinging notary server failed")
-	}
-	localRepo, err := newLocalRepo(settings.LocalRepoPath)
-	if err != nil {
-		return "", errors.New("creating local tuf role repo")
-	}
-	// store intermediate state until all validation succeeds, then write
-	// changed roles to non-volitile storage
-	state := newRepoMan(localRepo, notary, settings, notary.client)
-	stagedPath, err := state.refresh()
-	if err != nil {
-		return "", errors.Wrap(err, "getting paths for staged packages")
-	}
-	// IF all operations are successful, we write new TUF repository to
-	// persistent storage.  This will be our baseline state for the next check
-	// for updates.
-	tag := getTag()
-	err = state.save(tag)
-	if err != nil {
-		return "", errors.Wrap(err, "unable to save tuf repo state")
-	}
-	return stagedPath, nil
-}
-
 // getTag a timestamp based moniker
 func getTag() string {
 	return time.Now().Format(time.Now().Format(filetimeFormat))
@@ -122,7 +81,12 @@ func (rs *repoMan) Stop() {
 	<-quit
 }
 
-func (rs *repoMan) refresSafe() (bool, error) {
+// Refresh gets the current metadata from the notary repository and performs
+// requisite checks and validations as specified in the TUF spec section 5.1 'The Client Application'.
+// Note that we expect that we do not use consistent snapshots and delegations are
+// not supported because for our purposes, both are unnecessary.
+// See https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt
+func (rs *repoMan) refresh() (bool, error) {
 	errc := make(chan error)
 	var isLatest bool
 	rs.actionc <- func() {
@@ -293,44 +257,6 @@ func (rs *repoMan) saveRole(r role, js []byte) error {
 		return errors.New("not all of the role was written to file")
 	}
 	return nil
-}
-
-// Refresh gets the current metadata from the notary repository and performs
-// requisite checks and validations as specified in the TUF spec section 5.1 'The Client Application'.
-// Note that we expect that we do not use consistent snapshots and delegations are
-// not supported because for our purposes, both are unnecessary.
-// See https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt
-func (rs *repoMan) refresh() (string, error) {
-	root, err := rs.refreshRoot()
-	if err != nil {
-		return "", errors.Wrap(err, "refreshing root")
-	}
-	// cache the current root
-	rs.root = root
-	timestamp, err := rs.refreshTimestamp(root)
-	if err != nil {
-		return "", errors.Wrap(err, "refreshing timestamp")
-	}
-	rs.timestamp = timestamp
-	snapshot, err := rs.refreshSnapshot(root, timestamp)
-	if err != nil {
-		return "", errors.Wrap(err, "refreshing snapshot")
-	}
-	rs.snapshot = snapshot
-	targets, latest, err := rs.refreshTargets(root, snapshot)
-	if err != nil {
-		return "", errors.Wrap(err, "refreshing targets")
-	}
-	rs.targets = targets
-	var stagingPath string
-	if !latest {
-		sp, err := rs.stageTarget(targets.Signed.Targets)
-		if err != nil {
-			return "", errors.Wrap(err, "downloading updated target")
-		}
-		stagingPath = sp
-	}
-	return stagingPath, nil
 }
 
 // Root role processing TUF spec section 5.1.0 through 5.1.1.9
@@ -594,20 +520,6 @@ func (rs *repoMan) getKeys(r *Root, sigs []Signature) map[keyID]Key {
 	return result
 }
 
-func (rs *repoMan) stageTarget(tgts map[targetNameType]FileIntegrityMeta) (string, error) {
-	// 5.1. If there is no targets metadata about this target, then report that
-	// there is no such target.
-	fim, ok := tgts[rs.settings.TargetName]
-	if !ok {
-		return "", errNoSuchTarget
-	}
-	stagePath, err := rs.downloadTarget(rs.client, rs.settings.TargetName, &fim)
-	if err != nil {
-		return "", errors.Wrap(err, "downloading target")
-	}
-	return stagePath, nil
-}
-
 // 5.2. Otherwise, download the target (up to the number of bytes specified in
 // the targets metadata), and verify that its hashes match the targets
 // metadata. (We download up to this number of bytes, because in some cases,
@@ -623,60 +535,38 @@ func (rs *repoMan) stageTarget(tgts map[targetNameType]FileIntegrityMeta) (strin
 // metadata file found earlier in step 4.
 // In either case, the client MUST write the file to non-volatile storage as
 // FILENAME.EXT.
-func (rs *repoMan) downloadTarget(client *http.Client, target targetNameType, fim *FileIntegrityMeta) (string, error) {
+func (rs *repoMan) downloadTarget(target targetNameType, fim *FileIntegrityMeta, destination io.Writer) error {
 	// we expect our mirrored distribution targets to be located
 	// at https://mirror.com/gun/targetname
-	mirrorURL, err := url.Parse(fmt.Sprintf("%s/%s/%s", rs.settings.MirrorURL, rs.settings.GUN, target))
+	mirrorURL, err := url.Parse(rs.settings.MirrorURL)
 	if err != nil {
-		return "", errors.Wrap(err, "building url to download target")
+		return errors.Wrap(err, "parse mirror url for download")
 	}
+	mirrorURL.Path = path.Join(mirrorURL.Path, rs.settings.GUN, string(target))
+
 	request, err := http.NewRequest(http.MethodGet, mirrorURL.String(), nil)
 	if err != nil {
-		return "", errors.Wrap(err, "creating target request")
+		return errors.Wrap(err, "creating target request")
 	}
 	// Dissallow caching because if we are making this call, we know that the target
 	// has changed and we want to make sure we get the data from the mirror, not
 	// from cache.
 	request.Header.Add(cacheControl, cachePolicyNoStore)
-	resp, err := client.Do(request)
+	resp, err := rs.client.Do(request)
 	if err != nil {
-		return "", errors.Wrap(err, "fetching target from mirror")
+		return errors.Wrap(err, "fetching target from mirror")
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode != http.StatusOK {
-		return "", errors.Errorf("get target returned %q", resp.Status)
+		return errors.Errorf("get target returned %q", resp.Status)
 	}
-	stagingFile := filepath.Join(rs.settings.StagingPath, string(target))
-	baseDir := filepath.Dir(stagingFile)
-	_, err = os.Stat(baseDir)
-	if os.IsNotExist(err) {
-		err = os.MkdirAll(baseDir, 0755)
-		if err != nil {
-			return "", errors.Wrap(err, "creating dir for target file")
-		}
-	}
-	if err != nil {
-		return "", errors.Wrap(err, "error checking dir for target")
-	}
-	// Create a temp file to hold downloaded file. If validation is successful
-	// we'll rename it to the expected name, otherwise, we'll delete it.
-	fout, err := ioutil.TempFile(rs.settings.StagingPath, "temp")
-	if err != nil {
-		return "", errors.Wrap(err, "creating intermediate file to validate target")
-	}
-	defer fout.Close()
-	defer os.Remove(fout.Name())
-	// Hash and length validation
-	err = fim.verify(io.TeeReader(io.LimitReader(resp.Body, int64(fim.Length)), fout))
-	if err != nil {
-		return "", err
+	stream := io.LimitReader(resp.Body, int64(fim.Length))
+	if err := fim.verify(io.TeeReader(stream, destination)); err != nil {
+		return errors.Wrap(err, "verifying current target download")
 	}
 
-	err = os.Rename(fout.Name(), stagingFile)
-	if err != nil {
-		return "", errors.Wrap(err, "renaming temp file to staging file")
-	}
-	return stagingFile, nil
+	return nil
 }
 
 func (rs *repoMan) getLocalTargets() map[targetNameType]FileIntegrityMeta {
