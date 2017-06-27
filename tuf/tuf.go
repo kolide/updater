@@ -679,6 +679,16 @@ func (rs *repoMan) downloadTarget(client *http.Client, target targetNameType, fi
 	return stagingFile, nil
 }
 
+func (rs *repoMan) getLocalTargets() map[targetNameType]FileIntegrityMeta {
+	files := make(chan map[targetNameType]FileIntegrityMeta)
+	rs.actionc <- func() {
+		if rs.targets != nil {
+			files <- rs.targets.Signed.Targets
+		}
+	}
+	return <-files
+}
+
 func (rs *repoMan) verifySignatures(role marshaller, keys map[keyID]Key, sigs []Signature, threshold int) error {
 	// just in case, make sure threshold is not zero as this would mean we're not checking any sigs
 	if threshold <= 0 {

@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/kolide/updater/tuf"
@@ -29,6 +31,7 @@ type Settings tuf.Settings
 type Updater struct {
 	settings            tuf.Settings
 	done                chan chan struct{}
+	actionc             chan func()
 	checkFrequency      time.Duration
 	notificationHandler NotificationHandler
 	client              *tuf.Client
@@ -100,6 +103,7 @@ func Start(settings Settings, onUpdate NotificationHandler, opts ...Option) (*Up
 		notificationHandler: onUpdate,
 		settings:            tuf.Settings(settings),
 		done:                make(chan chan struct{}),
+		actionc:             make(chan func()),
 		client:              client,
 	}
 	for _, opt := range opts {
@@ -124,12 +128,24 @@ func (u *Updater) Stop() {
 func (u *Updater) loop() {
 	ticker := time.NewTicker(u.checkFrequency).C
 	for {
-		// stagingPath, err := tuf.GetStagedPath(&u.settings)
-		// if err != nil || stagingPath != "" {
-		// 	u.notificationHandler(stagingPath, err)
-		// }
+		files, latest, err := u.client.Update()
+		if err != nil {
+			u.notificationHandler("", err)
+		}
+		target, ok := files[u.settings.TargetName]
+		if !ok {
+			// u.notificationHandler("", errors.New("no such target"))
+		}
+		_ = target
+
+		// TODO check if hash has changed instead
+		latest = false
+		u.downloadIfNew(latest)
+
 		select {
 		case <-ticker:
+		case f := <-u.actionc:
+			f()
 		case done := <-u.done:
 			close(done)
 			return
@@ -137,8 +153,47 @@ func (u *Updater) loop() {
 	}
 }
 
+func (u *Updater) downloadIfNew(latest bool) {
+	if latest {
+		return
+	}
+	dpath := filepath.Join(u.settings.StagingPath, string(u.settings.TargetName))
+	if err := os.MkdirAll(filepath.Dir(dpath), 0755); err != nil {
+		u.notificationHandler("", err)
+		return
+	}
+	destination, err := os.Create(dpath)
+	if err != nil {
+		u.notificationHandler("", err)
+		return
+	}
+	defer destination.Close()
+	if err := u.client.Download(string(u.settings.TargetName), destination); err != nil {
+		destination.Close()
+		os.Remove(dpath)
+		return
+	} else {
+		u.notificationHandler(dpath, nil)
+		return
+	}
+}
+
 func (u *Updater) Download(target string, destination io.Writer) error {
-	return u.client.Download(target, destination)
+	// The updater manages a local repository of files whenever the checkFrequency timer ticks.
+	// Whenever someone calls Download, we must refresh the same set of files, which would potentially result
+	// in a race condition, depending on how Download is called.
+	// To avoid multiple processes updating the same set of tuf files, we funnel all actions to a single
+	// goroutine.
+	errc := make(chan error)
+	u.actionc <- func() {
+		_, _, err := u.client.Update()
+		if err != nil {
+			errc <- err
+			return
+		}
+		errc <- u.client.Download(target, destination)
+	}
+	return <-errc
 }
 
 // Verify performs some preliminary checks on parameter.

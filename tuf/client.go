@@ -51,19 +51,12 @@ func (c *Client) Update() (files map[targetNameType]FileIntegrityMeta, latest bo
 		return nil, latest, errors.Wrap(err, "unable to save tuf repo state")
 	}
 
-	ff := make(chan map[targetNameType]FileIntegrityMeta)
-	c.manager.actionc <- func() {
-		ff <- c.manager.targets.Signed.Targets
-	}
-
-	return <-ff, latest, nil
+	files = c.manager.getLocalTargets()
+	return files, latest, nil
 }
 
 func (c *Client) Download(targetName string, destination io.Writer) error {
-	files, _, err := c.Update()
-	if err != nil {
-		return errors.Wrap(err, "refreshing repo state")
-	}
+	files := c.manager.getLocalTargets()
 	currentMeta, ok := files[targetNameType(targetName)]
 	if !ok {
 		return errors.Errorf("targetName %s not found", targetName)
@@ -91,7 +84,7 @@ func (c *Client) Download(targetName string, destination io.Writer) error {
 	}
 
 	stream := io.LimitReader(resp.Body, int64(currentMeta.Length))
-	if err := currentMeta.verify(stream); err != nil {
+	if err := currentMeta.verify(io.TeeReader(stream, destination)); err != nil {
 		return err
 	}
 
