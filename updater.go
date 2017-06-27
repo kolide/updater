@@ -143,7 +143,7 @@ func (u *Updater) loop() {
 			} else if h, ok := target.Hashes["sha512"]; ok {
 				return h
 			} else {
-				panic("no usable hash to compare")
+				return ""
 			}
 		}
 		h := metaHash()
