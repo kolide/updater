@@ -583,15 +583,17 @@ func (rs *repoMan) downloadTarget(client *http.Client, target targetNameType, fi
 	if resp.StatusCode != http.StatusOK {
 		return "", errors.Errorf("get target returned %q", resp.Status)
 	}
-	_, err = os.Stat(rs.settings.StagingPath)
+	stagingFile := filepath.Join(rs.settings.StagingPath, string(target))
+	baseDir := filepath.Dir(stagingFile)
+	_, err = os.Stat(baseDir)
 	if os.IsNotExist(err) {
-		err = os.MkdirAll(rs.settings.StagingPath, 0755)
+		err = os.MkdirAll(baseDir, 0755)
 		if err != nil {
-			return "", errors.Wrap(err, "creating dir for staging file")
+			return "", errors.Wrap(err, "creating dir for target file")
 		}
 	}
 	if err != nil {
-		return "", errors.Wrap(err, "checking dir for staging file")
+		return "", errors.Wrap(err, "error checking dir for target")
 	}
 	// Create a temp file to hold downloaded file. If validation is successful
 	// we'll rename it to the expected name, otherwise, we'll delete it.
@@ -606,19 +608,7 @@ func (rs *repoMan) downloadTarget(client *http.Client, target targetNameType, fi
 	if err != nil {
 		return "", err
 	}
-	// File passes validation, copy temp file to staging file
-	stagingFile := filepath.Join(rs.settings.StagingPath, string(target))
-	baseDir := filepath.Dir(stagingFile)
-	_, err = os.Stat(baseDir)
-	if os.IsNotExist(err) {
-		err = os.MkdirAll(baseDir, 0755)
-		if err != nil {
-			return "", errors.Wrap(err, "creating dir for target file")
-		}
-	}
-	if err != nil {
-		return "", errors.Wrap(err, "error checking dir for target")
-	}
+
 	err = os.Rename(fout.Name(), stagingFile)
 	if err != nil {
 		return "", errors.Wrap(err, "renaming temp file to staging file")

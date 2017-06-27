@@ -90,7 +90,7 @@ func ValidateURL(repoURL string) (*url.URL, error) {
 	return u, nil
 }
 
-// path must exist and be a directory, or a symlink to a directory
+// ValidatePath path must exist and be a directory, or a symlink to a directory
 func ValidatePath(repoPath string) error {
 	fi, err := os.Stat(repoPath)
 	if os.IsNotExist(err) {
