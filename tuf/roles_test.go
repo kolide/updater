@@ -33,7 +33,7 @@ func TestTargetsJson(t *testing.T) {
 	assert.Equal(t, 5, targets.Signed.Version)
 	target, ok := targets.Signed.Targets["1.0.0"]
 	require.True(t, ok)
-	assert.Equal(t, 3453, target.Length)
+	assert.Equal(t, int64(3453), target.Length)
 	hash, ok := target.Hashes[hashSHA256]
 	require.True(t, ok)
 	assert.Equal(t, "xdD9jvFLoCYvTNYiyDMyX054paEjI88NddSVAv8fZXI=", hash)
@@ -88,7 +88,7 @@ func TestSnapshotJson(t *testing.T) {
 		role    role
 		sha256  string
 		sha512  string
-		length  int
+		length  int64
 	}{
 		{true, roleRoot, `hmw3Q5sat`, `EU+fVRkpw9n1UIzx1`, 2357},
 		{true, roleTargets, `nwg+cF2+A+Ybf`, `GGye6UL/7r+qz`, 727},
@@ -124,7 +124,7 @@ func TestTimestampJson(t *testing.T) {
 		role    role
 		sha256  string
 		sha512  string
-		length  int
+		length  int64
 	}{
 		{false, roleRoot, "", "", 0},
 		{false, roleTargets, "", "", 0},
