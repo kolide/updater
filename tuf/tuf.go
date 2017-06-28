@@ -86,11 +86,6 @@ func (rs *repoMan) Stop() {
 	<-quit
 }
 
-// Refresh gets the current metadata from the notary repository and performs
-// requisite checks and validations as specified in the TUF spec section 5.1 'The Client Application'.
-// Note that we expect that we do not use consistent snapshots and delegations are
-// not supported because for our purposes, both are unnecessary.
-// See https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt
 func (rs *repoMan) refresh() (bool, error) {
 	errc := make(chan error)
 	var isLatest bool

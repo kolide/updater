@@ -34,30 +34,47 @@ const (
 	defaultMaxResponseSize = 5 * 1024 * 1024 // 5 Megabytes
 )
 
+// Option allows customization of the Client.
 type Option func(*Client)
 
-// WithFrequency allows changing the frequency of update checks.
+// WithFrequency allows changing the frequency of autoupdate checks.
 func WithFrequency(duration time.Duration) Option {
 	return func(c *Client) {
 		c.checkFrequency = duration
 	}
 }
 
+// NotificationHandler gets called when the hosting application has a new version
+// of a target that it needs to deal with.  The hosting application will need to
+// check the err object, if err is nil the stagingPath will point to a validated
+// target which is the hosting application's responsibility to deal with.
+type NotificationHandler func(stagingPath string, err error)
+
+// WithAutoUpdate specifies a target which will be auto-downloaded into a staging path by the client.
+// WithAutoUpdate requires a NotificationHandler which will be called whenever there is a new upate.
+// Use WithFrequency to configure how often the autoupdate goroutine runs.
+// There can only be one NotificationHandler per Client.
 func WithAutoUpdate(targetName, stagingPath string, onUpdate NotificationHandler) Option {
 	return func(c *Client) {
 		c.stagingPath = stagingPath
 		c.watchedTarget = targetName
 		c.notificationHandler = onUpdate
-		c.notificationHandler = onUpdate
 	}
 }
 
+// WithHTTPClient configures a custom HTTP Client to be used by the Client.
 func WithHTTPClient(httpClient *http.Client) Option {
 	return func(c *Client) {
 		c.client = httpClient
 	}
 }
 
+// NewClient creates a TUF Client which can securely download packages from a remote mirror.
+// The Client downloads payloads(also called targets) from a remote mirror, validating
+// each payload according to the TUF spec. The Client uses a Docker Notary service to
+// fetch TUF metadata files stored in the local repository.
+//
+// You can use one of the provided Options to customize the client configuration.
 func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 	if err := settings.verify(); err != nil {
 		return nil, err
@@ -91,6 +108,14 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 	return &client, nil
 }
 
+// Update updates the local TUF metadata from a remote repository. If the update is successful,
+// a dictionary of available files will be returned.
+//
+// Update gets the current metadata from the notary repository and performs
+// requisite checks and validations as specified in the TUF spec section 5.1 'The Client Application'.
+// Note that we expect that we do not use consistent snapshots and delegations are
+// not supported because for our purposes, both are unnecessary.
+// See https://github.com/theupdateframework/tuf/blob/904fa9b8df8ab8c632a210a2b05fd741e366788a/docs/tuf-spec.txt
 func (c *Client) Update() (files map[string]FileIntegrityMeta, latest bool, err error) {
 	latest, err = c.manager.refresh()
 	if err != nil {
@@ -105,6 +130,8 @@ func (c *Client) Update() (files map[string]FileIntegrityMeta, latest bool, err 
 	return files, latest, nil
 }
 
+// Download downloads a local resource from a remote URL.
+// Download will use local TUF metadata, so it's important to call Update before dowloading a new file.
 func (c *Client) Download(targetName string, destination io.Writer) error {
 	files := c.manager.getLocalTargets()
 	fim, ok := files[targetName]
@@ -175,12 +202,6 @@ func (c *Client) downloadIfNew(old, new string) {
 		return
 	}
 }
-
-// NotificationHandler gets called when the hosting application has a new version
-// of a target that it needs to deal with.  The hosting application will need to
-// check the err object, if err is nil the stagingPath will point to a validated
-// target which is the hosting application's responsibility to deal with.
-type NotificationHandler func(stagingPath string, err error)
 
 func (c *Client) Stop() {
 	c.manager.Stop()
