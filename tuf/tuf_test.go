@@ -22,30 +22,26 @@ import (
 
 func TestURLValidation(t *testing.T) {
 	settings := &Settings{
-		NotaryURL:          "https://foo.com/zip.json",
-		GUN:                "kolide/agent/linux",
-		MaxResponseSize:    defaultMaxResponseSize,
-		InsecureSkipVerify: true,
-		Client:             &http.Client{},
+		NotaryURL: "https://foo.com/zip.json",
+		GUN:       "kolide/agent/linux",
 	}
 
-	r, err := newNotaryRepo(settings)
+	hclient := testHTTPClient()
+	r, err := newNotaryRepo(settings, defaultMaxResponseSize, hclient)
 	require.Nil(t, err)
 	assert.NotNil(t, r)
-	assert.True(t, r.skipVerify)
 	assert.NotNil(t, r.url)
 	assert.Equal(t, "kolide/agent/linux", r.gun)
 	settings.NotaryURL = "HtTps://foo.com/zip.json"
-	settings.InsecureSkipVerify = false
-	r, err = newNotaryRepo(settings)
+	r, err = newNotaryRepo(settings, defaultMaxResponseSize, hclient)
 	require.Nil(t, err)
 	assert.NotNil(t, r)
 	settings.NotaryURL = "http://foo.com/zip.json"
-	r, err = newNotaryRepo(settings)
+	r, err = newNotaryRepo(settings, defaultMaxResponseSize, hclient)
 	require.NotNil(t, err)
 	assert.Nil(t, r)
 	settings.NotaryURL = "garbage"
-	r, err = newNotaryRepo(settings)
+	r, err = newNotaryRepo(settings, defaultMaxResponseSize, hclient)
 	require.NotNil(t, err)
 	assert.Nil(t, r)
 }
@@ -262,28 +258,34 @@ func TestClientNoUpdates(t *testing.T) {
 	notary, mirror := setupTufRemote(0, "2", t)
 	defer notary.Close()
 	defer mirror.Close()
-	settings := Settings{
-		LocalRepoPath:      localRepoPath,
-		StagingPath:        stagingPath,
-		MirrorURL:          mirror.URL,
-		NotaryURL:          notary.URL,
-		InsecureSkipVerify: true,
-		GUN:                "kolide/agent/linux",
-		Client: &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		},
-	}
+	settings := testSettings(localRepoPath, notary, mirror)
 
-	client, err := NewClient(&settings)
+	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()))
 	require.Nil(t, err)
 
 	_, latest, err := client.Update()
 	require.Nil(t, err)
 	require.True(t, latest)
+}
+
+func testSettings(localRepo string, notary, mirror *httptest.Server) *Settings {
+	settings := Settings{
+		LocalRepoPath: localRepo,
+		MirrorURL:     mirror.URL,
+		NotaryURL:     notary.URL,
+		GUN:           "kolide/agent/linux",
+	}
+	return &settings
+}
+
+func testHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
 }
 
 func TestClientWithUpdates(t *testing.T) {
@@ -293,24 +295,10 @@ func TestClientWithUpdates(t *testing.T) {
 	notary, mirror := setupTufRemote(1, "2", t)
 	defer notary.Close()
 	defer mirror.Close()
-	settings := Settings{
-		LocalRepoPath:      localRepoPath,
-		StagingPath:        stagingPath,
-		MirrorURL:          mirror.URL,
-		NotaryURL:          notary.URL,
-		InsecureSkipVerify: true,
-		GUN:                "kolide/agent/linux",
-		TargetName:         "somedir/target.0",
-		Client: &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		},
-	}
 
-	client, err := NewClient(&settings)
+	settings := testSettings(localRepoPath, notary, mirror)
+
+	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()))
 	require.Nil(t, err)
 
 	_, latest, err := client.Update()
@@ -339,23 +327,9 @@ func TestWithRootKeyRotation(t *testing.T) {
 	notary, mirror := setupTufRemote(2, "3", t)
 	defer notary.Close()
 	defer mirror.Close()
-	settings := Settings{
-		LocalRepoPath:      localRepoPath,
-		StagingPath:        stagingPath,
-		MirrorURL:          mirror.URL,
-		NotaryURL:          notary.URL,
-		InsecureSkipVerify: true,
-		GUN:                "kolide/agent/linux",
-		Client: &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		},
-	}
+	settings := testSettings(localRepoPath, notary, mirror)
 
-	client, err := NewClient(&settings)
+	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()))
 	require.Nil(t, err)
 
 	_, latest, err := client.Update()
@@ -384,23 +358,9 @@ func TestWithTimestampKeyRotation(t *testing.T) {
 	notary, mirror := setupTufRemote(4, "3", t)
 	defer notary.Close()
 	defer mirror.Close()
-	settings := Settings{
-		LocalRepoPath:      localRepoPath,
-		StagingPath:        stagingPath,
-		MirrorURL:          mirror.URL,
-		NotaryURL:          notary.URL,
-		InsecureSkipVerify: true,
-		GUN:                "kolide/agent/linux",
-		Client: &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		},
-	}
+	settings := testSettings(localRepoPath, notary, mirror)
 
-	client, err := NewClient(&settings)
+	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()))
 	require.Nil(t, err)
 
 	_, latest, err := client.Update()

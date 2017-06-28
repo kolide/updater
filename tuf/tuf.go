@@ -37,23 +37,28 @@ type Settings struct {
 	// MirrorURL is the base URL where distribution packages are found and
 	// downloaded. Must use https scheme.
 	MirrorURL string
-	// StagingPath is where new distribution packages are stored after they
-	// have been validated.
-	StagingPath string
-	// InsecureSkipVerify if true, the client accepts unsigned certificates.  This
-	// option should only be used for testing.
-	InsecureSkipVerify bool
 	// GUN Globally Unique Identifier, an ID used by Notary to identify
 	// a repository. Typically in the form organization/reponame/platform
 	GUN string
-	// MaxResponseSize the maximum size of a get response.  Defaults to
-	// 5 MB
-	MaxResponseSize int64
-	// TargetName is the name of the target to retreive. Typically this would
-	// denote a version, like 'v2' or 'latest'
-	TargetName string
-	// Client is the one and only http client
-	Client *http.Client
+}
+
+func (s *Settings) verify() error {
+	err := validatePath(s.LocalRepoPath)
+	if err != nil {
+		return errors.Wrap(err, "verifying local repo path")
+	}
+	if s.GUN == "" {
+		return errors.New("GUN can't be empty")
+	}
+	_, err = validateURL(s.NotaryURL)
+	if err != nil {
+		return errors.Wrap(err, "remote repo url validation")
+	}
+	_, err = validateURL(s.MirrorURL)
+	if err != nil {
+		return errors.Wrap(err, "mirror url validation")
+	}
+	return nil
 }
 
 // getTag a timestamp based moniker
@@ -81,11 +86,6 @@ func (rs *repoMan) Stop() {
 	<-quit
 }
 
-// Refresh gets the current metadata from the notary repository and performs
-// requisite checks and validations as specified in the TUF spec section 5.1 'The Client Application'.
-// Note that we expect that we do not use consistent snapshots and delegations are
-// not supported because for our purposes, both are unnecessary.
-// See https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt
 func (rs *repoMan) refresh() (bool, error) {
 	errc := make(chan error)
 	var isLatest bool
