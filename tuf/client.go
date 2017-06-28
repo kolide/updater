@@ -59,6 +59,10 @@ func WithHTTPClient(httpClient *http.Client) Option {
 }
 
 func NewClient(settings *Settings, opts ...Option) (*Client, error) {
+	if err := settings.verify(); err != nil {
+		return nil, err
+	}
+
 	client := Client{
 		maxResponseSize: defaultMaxResponseSize,
 		client:          defaultHttpClient(),
