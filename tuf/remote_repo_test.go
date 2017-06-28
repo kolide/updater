@@ -78,7 +78,6 @@ func TestGetRemoteRole(t *testing.T) {
 		r := notaryRepo{
 			gun:             "kolide/agent/darwin",
 			url:             baseURL,
-			skipVerify:      true,
 			maxResponseSize: defaultMaxResponseSize,
 			client: &http.Client{
 				Transport: &http.Transport{
@@ -123,7 +122,6 @@ func TestTheReadSizeLimitsAreEnforced(t *testing.T) {
 	r := notaryRepo{
 		gun:             "kolide/agent/darwin",
 		url:             baseURL,
-		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
 		client: &http.Client{
 			Transport: &http.Transport{
@@ -157,7 +155,6 @@ func TestGetVersionRoot(t *testing.T) {
 	r := notaryRepo{
 		gun:             "kolide/agent/darwin",
 		url:             baseURL,
-		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
 		client: &http.Client{
 			Transport: &http.Transport{
@@ -188,7 +185,6 @@ func TestGetRoot(t *testing.T) {
 	r := notaryRepo{
 		gun:             "kolide/agent/darwin",
 		url:             baseURL,
-		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
 		client: &http.Client{
 			Transport: &http.Transport{
@@ -219,7 +215,6 @@ func TestGetTargets(t *testing.T) {
 	r := notaryRepo{
 		gun:             "kolide/agent/darwin",
 		url:             baseURL,
-		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
 		client: &http.Client{
 			Transport: &http.Transport{
@@ -249,7 +244,6 @@ func TestGetTimestamp(t *testing.T) {
 	r := notaryRepo{
 		gun:             "kolide/agent/darwin",
 		url:             baseURL,
-		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
 		client: &http.Client{
 			Transport: &http.Transport{
@@ -279,7 +273,6 @@ func TestGetSnapshot(t *testing.T) {
 	r := notaryRepo{
 		gun:             "kolide/agent/darwin",
 		url:             baseURL,
-		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
 		client: &http.Client{
 			Transport: &http.Transport{
@@ -307,7 +300,6 @@ func Test404ErrorPassesThrough(t *testing.T) {
 	r := notaryRepo{
 		gun:             "kolide/agent/darwin",
 		url:             baseURL,
-		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
 		client: &http.Client{
 			Transport: &http.Transport{
@@ -333,7 +325,6 @@ func TestPingSuccess(t *testing.T) {
 	r := notaryRepo{
 		gun:             "kolide/agent/darwin",
 		url:             baseURL,
-		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
 		client: &http.Client{
 			Transport: &http.Transport{
@@ -358,7 +349,6 @@ func TestPingFail(t *testing.T) {
 	r := notaryRepo{
 		gun:             "kolide/agent/darwin",
 		url:             baseURL,
-		skipVerify:      true,
 		maxResponseSize: defaultMaxResponseSize,
 		client: &http.Client{
 			Transport: &http.Transport{

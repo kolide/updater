@@ -10,9 +10,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"time"
 
-	"github.com/kolide/updater"
+	"github.com/kolide/updater/tuf"
 )
 
 func main() {
@@ -26,14 +25,11 @@ func main() {
 	)
 	flag.Parse()
 
-	settings := updater.Settings{
-		LocalRepoPath:      filepath.Join(*baseDir, "repo"),
-		NotaryURL:          "https://notary-server:4443",
-		StagingPath:        filepath.Join(*baseDir, "staging"),
-		GUN:                *flGUN,
-		TargetName:         "latest/target",
-		InsecureSkipVerify: true,
-		MirrorURL:          "https://localhost:8888/repo",
+	settings := tuf.Settings{
+		LocalRepoPath: filepath.Join(*baseDir, "repo"),
+		NotaryURL:     "https://notary-server:4443",
+		GUN:           *flGUN,
+		MirrorURL:     "https://localhost:8888/repo",
 	}
 
 	if *flBootstrap {
@@ -73,7 +69,15 @@ func main() {
 		// Do app specific stuff here.
 		fmt.Printf("success: %q\n", stagingDir)
 	}
-	update, err := updater.Start(settings, updateHandler, updater.WithFrequency(1*time.Minute))
+
+	StagingPath := filepath.Join(*baseDir, "staging")
+	TargetName := "latest/target"
+	update, err := tuf.NewClient(
+		&settings,
+		tuf.WithAutoUpdate(TargetName, StagingPath, updateHandler),
+		tuf.WithHTTPClient(insecureClient()),
+	)
+
 	if err != nil {
 		fmt.Printf("could not create updater: %q", err)
 		os.Exit(1)
@@ -95,7 +99,7 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Printf("downloading %s to %s\n", settings.TargetName, f.Name())
+		fmt.Printf("downloading %s to %s\n", TargetName, f.Name())
 		if err := update.Download("latest/target", f); err != nil {
 			log.Fatal(err)
 		}
@@ -105,6 +109,16 @@ func main() {
 	fmt.Scanln()
 
 	fmt.Println("done...")
+}
+
+func insecureClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				InsecureSkipVerify: true,
+			},
+		},
+	}
 }
 
 func staticStaticRepo(path, dir string) http.Handler {

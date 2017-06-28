@@ -10,11 +10,10 @@ import (
 )
 
 const (
-	tufURLScheme           = "https"
-	tumAPIPattern          = `/v2/%s/_trust/tuf/%s.json`
-	healthzPath            = `/_notary_server/health`
-	roleRegex              = `^root$|^[1-9]*[0-9]+\.root$|^snapshot$|^timestamp$|^targets$`
-	defaultMaxResponseSize = 5 * 1024 * 1024 // 5 Megabytes
+	tufURLScheme  = "https"
+	tumAPIPattern = `/v2/%s/_trust/tuf/%s.json`
+	healthzPath   = `/_notary_server/health`
+	roleRegex     = `^root$|^[1-9]*[0-9]+\.root$|^snapshot$|^timestamp$|^targets$`
 	// http headers
 	cacheControl       = "Cache-Control"
 	cachePolicyNoStore = "no-store"
@@ -45,14 +44,14 @@ type localRepo struct {
 
 type notaryRepo struct {
 	url             *url.URL
-	skipVerify      bool
 	gun             string
 	maxResponseSize int64
 	client          *http.Client
 }
 
 func newLocalRepo(repoPath string) (*localRepo, error) {
-	err := ValidatePath(repoPath)
+	// TODO: remove, repo path is already validated in settings.verify
+	err := validatePath(repoPath)
 	if err != nil {
 		return nil, errors.Wrap(err, "new tuf repo")
 	}
@@ -63,23 +62,22 @@ func newLocalRepo(repoPath string) (*localRepo, error) {
 	return &repo, nil
 }
 
-//(baseURL, gun string, maxResponseSize int64, skipVerify bool) (*notaryRepo, error) {
-func newNotaryRepo(settings *Settings) (*notaryRepo, error) {
+func newNotaryRepo(settings *Settings, maxResponseSize int64, client *http.Client) (*notaryRepo, error) {
 	r := &notaryRepo{
-		maxResponseSize: settings.MaxResponseSize,
-		skipVerify:      settings.InsecureSkipVerify,
+		maxResponseSize: maxResponseSize,
 		gun:             settings.GUN,
-		client:          settings.Client,
+		client:          client,
 	}
 	var err error
-	r.url, err = ValidateURL(settings.NotaryURL)
+	// TODO remove, already validated in settings.verify
+	r.url, err = validateURL(settings.NotaryURL)
 	if err != nil {
 		return nil, err
 	}
 	return r, nil
 }
 
-func ValidateURL(repoURL string) (*url.URL, error) {
+func validateURL(repoURL string) (*url.URL, error) {
 	u, err := url.Parse(repoURL)
 	if err != nil {
 		return nil, errors.Wrap(err, "tuf remote repo url validation failed")
@@ -90,8 +88,8 @@ func ValidateURL(repoURL string) (*url.URL, error) {
 	return u, nil
 }
 
-// ValidatePath path must exist and be a directory, or a symlink to a directory
-func ValidatePath(repoPath string) error {
+// validatePath path must exist and be a directory, or a symlink to a directory
+func validatePath(repoPath string) error {
 	fi, err := os.Stat(repoPath)
 	if os.IsNotExist(err) {
 		return errors.Wrap(err, "tuf repo path validation failed")
