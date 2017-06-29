@@ -224,8 +224,16 @@ func TestGetTargets(t *testing.T) {
 			},
 		},
 	}
-
-	targets, err := r.targets()
+	readerSettings := &remoteReaderSettings{
+		gun:             r.gun,
+		url:             svr.URL,
+		client:          r.client,
+		maxResponseSize: r.maxResponseSize,
+	}
+	targetReader, err := newRemoteTargetReader(readerSettings)
+	require.Nil(t, err)
+	require.NotNil(t, targetReader)
+	targets, err := r.targets(targetReader)
 	require.Nil(t, err)
 	require.NotNil(t, targets)
 
