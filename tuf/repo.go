@@ -17,14 +17,14 @@ const (
 	// http headers
 	cacheControl       = "Cache-Control"
 	cachePolicyNoStore = "no-store"
-)
 
-var errNotFound = errors.New("remote resource does not exist")
+	maxDelegationCount = 50
+)
 
 type repo interface {
 	root(opts ...func() interface{}) (*Root, error)
 	snapshot(opts ...func() interface{}) (*Snapshot, error)
-	targets(opts ...func() interface{}) (*Targets, error)
+	targets(rdr roleReader, opts ...func() interface{}) (*RootTarget, error)
 	timestamp() (*Timestamp, error)
 }
 
@@ -36,11 +36,14 @@ type remoteRepo interface {
 type persistentRepo interface {
 	repo
 	save(role, interface{}) error
+	baseDir() string
 }
 
 type localRepo struct {
 	repoPath string
 }
+
+func (r localRepo) baseDir() string { return r.repoPath }
 
 type notaryRepo struct {
 	url             *url.URL
@@ -122,4 +125,47 @@ func isRoleCorrect(r role, s interface{}) {
 	if !hit {
 		panic("Programmer error! Role name and role type mismatch.")
 	}
+}
+
+type roleReader interface {
+	read(path string) (*Targets, error)
+}
+
+func getTargetRole(rdr roleReader) (*RootTarget, error) {
+	targ, err := rdr.read(string(roleTargets))
+	if err != nil {
+		return nil, err
+	}
+	root := RootTarget{
+		Targets:      targ,
+		targetLookup: make(map[string]*Targets),
+	}
+	root.append(string(roleTargets), targ)
+
+	for _, delegation := range root.Signed.Delegations.Roles {
+		err = getDelegatedTarget(rdr, &root, delegation.Name)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &root, nil
+}
+
+func getDelegatedTarget(rdr roleReader, root *RootTarget, roleName string) error {
+	target, err := rdr.read(roleName)
+	if err != nil {
+		return err
+	}
+	root.append(roleName, target)
+	for _, role := range target.Signed.Delegations.Roles {
+		err = getDelegatedTarget(rdr, root, role.Name)
+		// prevent cycles
+		if err != nil && err == errTargetSeen {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

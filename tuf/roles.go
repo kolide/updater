@@ -143,6 +143,17 @@ type Targets struct {
 	Signatures []Signature  `json:"signatures"`
 }
 
+type RootTarget struct {
+	*Targets
+	targetLookup     map[string]*Targets
+	targetPrecedence []*Targets
+}
+
+func (rt *RootTarget) append(role string, targ *Targets) {
+	rt.targetPrecedence = append(rt.targetPrecedence, targ)
+	rt.targetLookup[role] = targ
+}
+
 // SignedTarget specifics of the Targets
 type SignedTarget struct {
 	Type        string                       `json:"_type"`

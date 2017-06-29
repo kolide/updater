@@ -17,12 +17,15 @@ import (
 )
 
 var (
-	errRollbackAttack  = errors.New("role version is greater than previous role version")
-	errFreezeAttack    = errors.New("current time is after role expiration timestamp")
-	errUnsupportedHash = errors.New("unsupported hash alogorithm")
-	errHashIncorrect   = errors.New("file hash does not match")
-	errLengthIncorrect = errors.New("file length incorrect")
-	errNoSuchTarget    = errors.New("no such target")
+	errRollbackAttack         = errors.New("role version is greater than previous role version")
+	errFreezeAttack           = errors.New("current time is after role expiration timestamp")
+	errUnsupportedHash        = errors.New("unsupported hash alogorithm")
+	errHashIncorrect          = errors.New("file hash does not match")
+	errLengthIncorrect        = errors.New("file length incorrect")
+	errNoSuchTarget           = errors.New("no such target")
+	errNotFound               = errors.New("remote resource does not exist")
+	errMaxDelegationsExceeded = errors.New("too many delegations")
+	errTargetSeen             = errors.New("target already seen in tree")
 )
 
 // Settings various parameters needed to find updates
@@ -73,7 +76,7 @@ type repoMan struct {
 	root      *Root
 	timestamp *Timestamp
 	snapshot  *Snapshot
-	targets   *Targets
+	targets   *RootTarget
 	client    *http.Client
 
 	actionc chan func()
@@ -443,7 +446,7 @@ func (rs *repoMan) refreshSnapshot(root *Root, timestamp *Timestamp) (*Snapshot,
 }
 
 // Targets processing section 5.4 through 5.5.2 in the TUF spec
-func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, bool, error) {
+func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, bool, error) {
 	// 4. **Download and check the top-level targets metadata file**, up to either
 	// the number of bytes specified in the snapshot metadata file, or some
 	// Z number of bytes. The value for Z is set by the authors of the application
@@ -475,7 +478,17 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, boo
 	if ok {
 		opts = append(opts, testSHA512(hash))
 	}
-	current, err := rs.notary.targets(opts...)
+	settings := &remoteReaderSettings{
+		gun:             rs.settings.GUN,
+		url:             rs.settings.NotaryURL,
+		maxResponseSize: defaultMaxResponseSize,
+		client:          rs.client,
+	}
+	targetReader, err := newRemoteTargetReader(settings)
+	if err != nil {
+		return nil, false, errors.Wrap(err, "notary reader creation")
+	}
+	current, err := rs.notary.targets(targetReader, opts...)
 	if err != nil {
 		return nil, latest, errors.Wrap(err, "retrieving timestamp from notary")
 	}
@@ -488,7 +501,7 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, boo
 	if err != nil {
 		return nil, latest, errors.Wrap(err, "signature verification for targets failed")
 	}
-	previous, err := rs.repo.targets()
+	previous, err := rs.repo.targets(&localTargetReader{rs.repo.baseDir()})
 	if err != nil {
 		return nil, latest, errors.Wrap(err, "fetching local targets")
 	}
@@ -519,6 +532,79 @@ func (rs *repoMan) getKeys(r *Root, sigs []Signature) map[keyID]Key {
 	}
 	return result
 }
+
+// type precedenceList []*Targets
+//
+// func (pl precedenceList) append(target *Targets, paths []string) {
+// 	if len(paths) == 0 {
+// 		pl = append(pl, target)
+// 		return
+// 	}
+// 	for _, p := range paths {
+// 		if _, ok := target.Signed.Targets[p]; ok {
+// 			pl = append(pl, target)
+// 		}
+// 	}
+// }
+//
+// type targetTree struct {
+// 	keys       map[keyID]Key
+// 	precedence precedenceList
+// 	seen       map[string]*Targets
+// 	paths      []string
+// 	root       *Targets
+// }
+//
+// // adds a target to the tree if it hasn't been seen already. If it has
+// // been seen the function returns true
+// func (tt *targetTree) add(role string, target *Targets) (bool, error) {
+// 	if _, ok := tt.seen[role]; ok {
+// 		return true, nil
+// 	}
+// 	tt.seen[role] = target
+// 	if len(tt.seen) > maxDelegationCount {
+// 		return false, errMaxDelegationsExceeded
+// 	}
+// 	tt.precedence.append(target, tt.paths)
+// 	// collect keys for easy access later
+// 	for keyID, key := target.Signed.Delegations.Keys {
+// 		tt.keys[keyID] = key
+// 	}
+// 	return false, nil
+// }
+//
+// func fetchChildren(rdr targetReader, target *Targets, role string,  tree *targetTree) error {
+// 	seen, err := tree.add(role, target)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	// if we've seen this target already we're done
+// 	if seen {
+// 		return nil
+// 	}
+// 	// preorder traversal
+//
+//
+// 	return nil
+// }
+//
+// func buildTargetTree(rdr targetReader, paths ...string) (*targetTree, error) {
+// 	root, err := rdr.read("targets")
+// 	if err != nil {
+// 		return nil, err
+// 	}
+// 	tree := &targetTree{
+// 		keys:  make(map[keyID]Key),
+// 		seen:  make(map[string]*Targets),
+// 		paths: paths,
+// 		root:  root,
+// 	}
+// 	_, err = tree.add("targets", root)
+// 	if err != nil {
+// 		return nil, err
+// 	}
+//
+// }
 
 // 5.2. Otherwise, download the target (up to the number of bytes specified in
 // the targets metadata), and verify that its hashes match the targets

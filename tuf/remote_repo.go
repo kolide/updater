@@ -11,7 +11,59 @@ import (
 	"net/url"
 
 	"github.com/pkg/errors"
+	"github.com/y0ssar1an/q"
 )
+
+type remoteReaderSettings struct {
+	gun             string
+	url             string
+	maxResponseSize int64
+	client          *http.Client
+}
+
+type remoteTargetReader struct {
+	settings *remoteReaderSettings
+	url      *url.URL
+	seen     map[string]struct{}
+}
+
+func newRemoteTargetReader(settings *remoteReaderSettings) (*remoteTargetReader, error) {
+	u, err := url.Parse(settings.url)
+	if err != nil {
+		return nil, errors.Wrap(err, "instantianting remote target reader")
+	}
+	rdr := &remoteTargetReader{
+		settings: settings,
+		url:      u,
+		seen:     make(map[string]struct{}),
+	}
+	return rdr, nil
+
+}
+
+func (rdr *remoteTargetReader) read(role string) (*Targets, error) {
+	// prevent cycles in target tree
+	if _, ok := rdr.seen[role]; ok {
+		return nil, errTargetSeen
+	}
+	rdr.seen[role] = struct{}{}
+	path, err := url.Parse(fmt.Sprintf(tumAPIPattern, rdr.settings.gun, role))
+	if err != nil {
+		return nil, errors.Wrap(err, "bad url in remote target read")
+	}
+	roleLocation := rdr.url.ResolveReference(path).String()
+	resp, err := rdr.settings.client.Get(roleLocation)
+	if err != nil {
+		return nil, errors.Wrap(err, "fetching remote target")
+	}
+	defer resp.Body.Close()
+	var target Targets
+	err = json.NewDecoder(resp.Body).Decode(&target)
+	if err != nil {
+		return nil, errors.Wrap(err, "target json could not be decoded")
+	}
+	return &target, nil
+}
 
 // optional args
 type roleVersion int
@@ -75,13 +127,13 @@ func (r *notaryRepo) root(opts ...func() interface{}) (*Root, error) {
 	return &root, nil
 }
 
-func (r *notaryRepo) targets(opts ...func() interface{}) (*Targets, error) {
-	var targets Targets
-	err := r.getRole(roleTargets, &targets, opts...)
+func (r *notaryRepo) targets(rdr roleReader, opts ...func() interface{}) (*RootTarget, error) {
+	q.Q("getting targets")
+	rootTarget, err := getTargetRole(rdr)
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "getting remote target role")
 	}
-	return &targets, nil
+	return rootTarget, nil
 }
 
 func (r *notaryRepo) timestamp() (*Timestamp, error) {
