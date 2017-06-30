@@ -138,6 +138,7 @@ func getTargetRole(rdr roleReader) (*RootTarget, error) {
 	}
 	root := RootTarget{
 		Targets:      targ,
+		paths:        make(map[string]FileIntegrityMeta),
 		targetLookup: make(map[string]*Targets),
 	}
 	root.append(string(roleTargets), targ)

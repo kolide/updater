@@ -2,7 +2,12 @@ package tuf
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"path"
+	"strings"
 	"testing"
 
 	"github.com/kolide/updater/test"
@@ -61,5 +66,73 @@ func TestPopulateLocalTargetsWithChildren(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, targ, root.targetPrecedence[tc.expectedPrecedence])
 	}
+}
 
+func setupValidationTest(testRoot string) (*Root, *Snapshot, *RootTarget, error) {
+	rdr := mockLocalRepoReader{testRoot + "/"}
+	rootTarget, err := getTargetRole(&rdr)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	var ss Snapshot
+	buff, err := test.Asset(path.Join(testRoot, string(roleSnapshot)+".json"))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&ss)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	var root Root
+	buff, err = test.Asset(path.Join(testRoot, string(roleRoot)+".json"))
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&root)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	return &root, &ss, rootTarget, nil
+}
+
+func TestTargetReadWithValidations(t *testing.T) {
+	testRootPath := "test/delegation/0"
+	svr := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testDataPath := strings.Replace(strings.Replace(r.RequestURI, "/v2/", "", 1), "/_trust/tuf", "", 1)
+		buff, err := test.Asset(testDataPath)
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Write(buff)
+	}))
+	defer svr.Close()
+	rootRole, snapshotRole, rootTarget, err := setupValidationTest(testRootPath)
+	require.Nil(t, err)
+	require.NotNil(t, rootTarget)
+	require.NotNil(t, snapshotRole)
+	require.NotNil(t, rootRole)
+
+	rrs := remoteReaderSettings{
+		gun: testRootPath,
+		client: &http.Client{
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					InsecureSkipVerify: true,
+				},
+			},
+		},
+		url:             svr.URL,
+		maxResponseSize: defaultMaxResponseSize,
+		rootRole:        rootRole,
+		snapshotRole:    snapshotRole,
+		localRootTarget: rootTarget,
+	}
+	rtr, err := newRemoteTargetReader(&rrs)
+	require.Nil(t, err)
+	require.NotNil(t, rtr)
+	var notary notaryRepo
+	remoteRootTarget, err := notary.targets(rtr)
+	require.Nil(t, err)
+	require.NotNil(t, remoteRootTarget)
 }

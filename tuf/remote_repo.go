@@ -9,9 +9,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/pkg/errors"
-	"github.com/y0ssar1an/q"
 )
 
 type remoteReaderSettings struct {
@@ -19,12 +19,17 @@ type remoteReaderSettings struct {
 	url             string
 	maxResponseSize int64
 	client          *http.Client
+	rootRole        *Root
+	snapshotRole    *Snapshot
+	localRootTarget *RootTarget
 }
 
 type remoteTargetReader struct {
 	settings *remoteReaderSettings
 	url      *url.URL
 	seen     map[string]struct{}
+	keys     map[keyID]Key
+	roles    map[string]Role
 }
 
 func newRemoteTargetReader(settings *remoteReaderSettings) (*remoteTargetReader, error) {
@@ -36,18 +41,31 @@ func newRemoteTargetReader(settings *remoteReaderSettings) (*remoteTargetReader,
 		settings: settings,
 		url:      u,
 		seen:     make(map[string]struct{}),
+		keys:     make(map[keyID]Key),
+		roles:    make(map[string]Role),
 	}
+	targetRole := settings.rootRole.Signed.Roles[roleTargets]
+	for _, id := range targetRole.KeyIDs {
+		key, ok := settings.rootRole.Signed.Keys[keyID(id)]
+		if !ok {
+			return nil, errors.New("no key present for key id")
+		}
+		rdr.keys[keyID(id)] = key
+	}
+	rdr.roles[string(roleTargets)] = targetRole
 	return rdr, nil
-
 }
 
-func (rdr *remoteTargetReader) read(role string) (*Targets, error) {
+func (rdr *remoteTargetReader) read(delegate string) (*Targets, error) {
+	if len(rdr.seen) > maxDelegationCount {
+		return nil, errTooManyDelegates
+	}
 	// prevent cycles in target tree
-	if _, ok := rdr.seen[role]; ok {
+	if _, ok := rdr.seen[delegate]; ok {
 		return nil, errTargetSeen
 	}
-	rdr.seen[role] = struct{}{}
-	path, err := url.Parse(fmt.Sprintf(tumAPIPattern, rdr.settings.gun, role))
+	rdr.seen[delegate] = struct{}{}
+	path, err := url.Parse(fmt.Sprintf(tumAPIPattern, rdr.settings.gun, delegate))
 	if err != nil {
 		return nil, errors.Wrap(err, "bad url in remote target read")
 	}
@@ -57,12 +75,72 @@ func (rdr *remoteTargetReader) read(role string) (*Targets, error) {
 		return nil, errors.Wrap(err, "fetching remote target")
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.Errorf("notary server request status %q", resp.Status)
+	}
+	// get hashes and length for the target we're about to read
+	fim, ok := rdr.settings.snapshotRole.Signed.Meta[role(delegate)]
+	if !ok {
+		return nil, errors.Errorf("fim data missing for %q", delegate)
+	}
+	inStream := io.LimitReader(resp.Body, fim.Length)
+	var validated bytes.Buffer
+	// verify file integrity
+	err = fim.verify(io.TeeReader(inStream, &validated))
+	if err != nil {
+		return nil, errors.Wrapf(err, "file integrity checks failed for %q", delegate)
+	}
 	var target Targets
-	err = json.NewDecoder(resp.Body).Decode(&target)
+	err = json.NewDecoder(&validated).Decode(&target)
 	if err != nil {
 		return nil, errors.Wrap(err, "target json could not be decoded")
 	}
+	role, ok := rdr.roles[delegate]
+	if !ok {
+		return nil, errors.Errorf("unable to find role info for %q", delegate)
+	}
+	err = verifySignatures(target.Signed, rdr.keys, target.Signatures, role.Threshold)
+	if err != nil {
+		return nil, errors.Wrapf(err, "signature validation failed for role %q", delegate)
+	}
+	err = rdr.compareToExistingTarget(delegate, &target)
+	if err != nil {
+		return nil, errors.Wrapf(err, "comparing local delegate to notary delegate %q", delegate)
+	}
+	// we have a valid target at so save it's keys to validate the next target
+	// because we are doing pre-order traversal the parent target's keys will
+	// always be available to check the signatures of children
+	rdr.saveKeysForRoles(&target)
 	return &target, nil
+}
+
+func (rdr *remoteTargetReader) compareToExistingTarget(delegate string, target *Targets) error {
+	// check for previous delegation, it may not exist if a new delegation was created
+	previous, ok := rdr.settings.localRootTarget.targetLookup[delegate]
+	if !ok {
+		return nil
+	}
+	// 4.3. **Check for a rollback attack.** The version number of the previous
+	// targets metadata file, if any, MUST be less than or equal to the version
+	// number of this targets metadata file.
+	if previous.Signed.Version > target.Signed.Version {
+		return errRollbackAttack
+	}
+	// 4.4. **Check for a freeze attack.** The latest known time should be lower
+	// than the expiration timestamp in this metadata file.
+	if time.Now().After(target.Signed.Expires) {
+		return errFreezeAttack
+	}
+	return nil
+}
+
+func (rdr *remoteTargetReader) saveKeysForRoles(target *Targets) {
+	for id, key := range target.Signed.Delegations.Keys {
+		rdr.keys[id] = key
+	}
+	for _, delegate := range target.Signed.Delegations.Roles {
+		rdr.roles[delegate.Name] = delegate.Role
+	}
 }
 
 // optional args
@@ -128,7 +206,6 @@ func (r *notaryRepo) root(opts ...func() interface{}) (*Root, error) {
 }
 
 func (r *notaryRepo) targets(rdr roleReader, opts ...func() interface{}) (*RootTarget, error) {
-	q.Q("getting targets")
 	rootTarget, err := getTargetRole(rdr)
 	if err != nil {
 		return nil, errors.Wrap(err, "getting remote target role")
