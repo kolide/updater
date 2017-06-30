@@ -26,6 +26,8 @@ var (
 	errNotFound               = errors.New("remote resource does not exist")
 	errMaxDelegationsExceeded = errors.New("too many delegations")
 	errTargetSeen             = errors.New("target already seen in tree")
+	errFailedIntegrityCheck   = errors.New("target file fails integrity check")
+	errTooManyDelegates       = errors.Errorf("number of delegates exceeds max %d", maxDelegationCount)
 )
 
 // Settings various parameters needed to find updates
@@ -277,7 +279,7 @@ func (rs *repoMan) refreshRoot() (*Root, error) {
 	// 	0.2. Note that the expiration of the previous root metadata file does not
 	// matter, because we will attempt to update it in the next step.
 	keymap := keymapForSignatures(root)
-	err = rs.verifySignatures(root.Signed, keymap, root.Signatures, root.Signed.Roles[roleRoot].Threshold)
+	err = verifySignatures(root.Signed, keymap, root.Signatures, root.Signed.Roles[roleRoot].Threshold)
 	if err != nil {
 		return nil, errors.Wrap(err, "validating existing root")
 	}
@@ -308,12 +310,12 @@ func (rs *repoMan) refreshRoot() (*Root, error) {
 		// metadata file (version N), and (2) a threshold of keys specified in the
 		// current root metadata file (version N+1).
 		keymap := keymapForSignatures(root)
-		err = rs.verifySignatures(nextRoot.Signed, keymap, nextRoot.Signatures, root.Signed.Roles[roleRoot].Threshold)
+		err = verifySignatures(nextRoot.Signed, keymap, nextRoot.Signatures, root.Signed.Roles[roleRoot].Threshold)
 		if err != nil {
 			return nil, errors.Wrap(err, " previous root signature verification failed")
 		}
 		keymap = keymapForSignatures(nextRoot)
-		err = rs.verifySignatures(nextRoot.Signed, keymap, nextRoot.Signatures, nextRoot.Signed.Roles[roleRoot].Threshold)
+		err = verifySignatures(nextRoot.Signed, keymap, nextRoot.Signatures, nextRoot.Signed.Roles[roleRoot].Threshold)
 		if err != nil {
 			return nil, errors.Wrap(err, "root signature verification failed")
 		}
@@ -351,9 +353,9 @@ func (rs *repoMan) refreshTimestamp(root *Root) (*Timestamp, error) {
 	}
 	// 2.1. **Check signatures.** The timestamp metadata file must have been
 	// signed by a threshold of keys specified in the root metadata file.
-	keys := rs.getKeys(root, remote.Signatures)
+	keys := getKeys(root, remote.Signatures)
 	threshold := root.Signed.Roles[roleTimestamp].Threshold
-	err = rs.verifySignatures(remote.Signed, keys, remote.Signatures, threshold)
+	err = verifySignatures(remote.Signed, keys, remote.Signatures, threshold)
 	if err != nil {
 		return nil, errors.Wrap(err, "signature validation failed for timestamp")
 	}
@@ -410,9 +412,9 @@ func (rs *repoMan) refreshSnapshot(root *Root, timestamp *Timestamp) (*Snapshot,
 	}
 	// 3.2. **Check signatures.** The snapshot metadata file MUST have been signed
 	// by a threshold of keys specified in the previous root metadata file.
-	keys := rs.getKeys(root, current.Signatures)
+	keys := getKeys(root, current.Signatures)
 	threshold := root.Signed.Roles[roleSnapshot].Threshold
-	err = rs.verifySignatures(current.Signed, keys, current.Signatures, threshold)
+	err = verifySignatures(current.Signed, keys, current.Signatures, threshold)
 	if err != nil {
 		return nil, errors.Wrap(err, "signature validation failed for snapshot")
 	}
@@ -478,11 +480,18 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, 
 	if ok {
 		opts = append(opts, testSHA512(hash))
 	}
+	previous, err := rs.repo.targets(&localTargetReader{rs.repo.baseDir()})
+	if err != nil {
+		return nil, latest, errors.Wrap(err, "fetching local targets")
+	}
 	settings := &remoteReaderSettings{
 		gun:             rs.settings.GUN,
 		url:             rs.settings.NotaryURL,
 		maxResponseSize: defaultMaxResponseSize,
 		client:          rs.client,
+		rootRole:        root,
+		snapshotRole:    snapshot,
+		localRootTarget: previous,
 	}
 	targetReader, err := newRemoteTargetReader(settings)
 	if err != nil {
@@ -492,37 +501,41 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, 
 	if err != nil {
 		return nil, latest, errors.Wrap(err, "retrieving timestamp from notary")
 	}
-	// 4.2. **Check for an arbitrary software attack.** This metadata file MUST
-	// have been signed by a threshold of keys specified in the latest root
-	// metadata file.
-	keys := rs.getKeys(root, current.Signatures)
-	threshold := root.Signed.Roles[roleTargets].Threshold
-	err = rs.verifySignatures(current.Signed, keys, current.Signatures, threshold)
-	if err != nil {
-		return nil, latest, errors.Wrap(err, "signature verification for targets failed")
-	}
-	previous, err := rs.repo.targets(&localTargetReader{rs.repo.baseDir()})
-	if err != nil {
-		return nil, latest, errors.Wrap(err, "fetching local targets")
-	}
-	// 4.3. **Check for a rollback attack.** The version number of the previous
-	// targets metadata file, if any, MUST be less than or equal to the version
-	// number of this targets metadata file.
-	if previous.Signed.Version > current.Signed.Version {
-		return nil, latest, errRollbackAttack
-	}
-	// 4.4. **Check for a freeze attack.** The latest known time should be lower
-	// than the expiration timestamp in this metadata file.
-	if time.Now().After(current.Signed.Expires) {
-		return nil, latest, errFreezeAttack
-	}
-	if current.Signed.Version > previous.Signed.Version {
-		latest = false
-	}
+	latest = isLatest(previous, current)
 	return current, latest, nil
 }
 
-func (rs *repoMan) getKeys(r *Root, sigs []Signature) map[keyID]Key {
+// checks for changes in the delegate tree structure, delegate count
+// or changes to any files
+func isLatest(local *RootTarget, fromNotary *RootTarget) bool {
+	// check to see if a delegate has been added or removed, or that
+	// the structure of the tree hasn't changed
+	if len(local.targetPrecedence) != len(fromNotary.targetPrecedence) {
+		return false
+	}
+	for i, targ := range fromNotary.targetPrecedence {
+		if targ.delegateRole != local.targetPrecedence[i].delegateRole {
+			return false
+		}
+	}
+	// check if targets where added
+	if len(fromNotary.paths) > len(local.paths) {
+		return false
+	}
+	for targetName, fim := range fromNotary.paths {
+		lfim, ok := local.paths[targetName]
+		if !ok {
+			return false
+		}
+		if !fim.equal(&lfim) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func getKeys(r *Root, sigs []Signature) map[keyID]Key {
 	result := make(map[keyID]Key)
 	for _, sig := range sigs {
 		k, ok := r.keys()[sig.KeyID]
@@ -532,79 +545,6 @@ func (rs *repoMan) getKeys(r *Root, sigs []Signature) map[keyID]Key {
 	}
 	return result
 }
-
-// type precedenceList []*Targets
-//
-// func (pl precedenceList) append(target *Targets, paths []string) {
-// 	if len(paths) == 0 {
-// 		pl = append(pl, target)
-// 		return
-// 	}
-// 	for _, p := range paths {
-// 		if _, ok := target.Signed.Targets[p]; ok {
-// 			pl = append(pl, target)
-// 		}
-// 	}
-// }
-//
-// type targetTree struct {
-// 	keys       map[keyID]Key
-// 	precedence precedenceList
-// 	seen       map[string]*Targets
-// 	paths      []string
-// 	root       *Targets
-// }
-//
-// // adds a target to the tree if it hasn't been seen already. If it has
-// // been seen the function returns true
-// func (tt *targetTree) add(role string, target *Targets) (bool, error) {
-// 	if _, ok := tt.seen[role]; ok {
-// 		return true, nil
-// 	}
-// 	tt.seen[role] = target
-// 	if len(tt.seen) > maxDelegationCount {
-// 		return false, errMaxDelegationsExceeded
-// 	}
-// 	tt.precedence.append(target, tt.paths)
-// 	// collect keys for easy access later
-// 	for keyID, key := target.Signed.Delegations.Keys {
-// 		tt.keys[keyID] = key
-// 	}
-// 	return false, nil
-// }
-//
-// func fetchChildren(rdr targetReader, target *Targets, role string,  tree *targetTree) error {
-// 	seen, err := tree.add(role, target)
-// 	if err != nil {
-// 		return err
-// 	}
-// 	// if we've seen this target already we're done
-// 	if seen {
-// 		return nil
-// 	}
-// 	// preorder traversal
-//
-//
-// 	return nil
-// }
-//
-// func buildTargetTree(rdr targetReader, paths ...string) (*targetTree, error) {
-// 	root, err := rdr.read("targets")
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	tree := &targetTree{
-// 		keys:  make(map[keyID]Key),
-// 		seen:  make(map[string]*Targets),
-// 		paths: paths,
-// 		root:  root,
-// 	}
-// 	_, err = tree.add("targets", root)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-//
-// }
 
 // 5.2. Otherwise, download the target (up to the number of bytes specified in
 // the targets metadata), and verify that its hashes match the targets
@@ -665,7 +605,7 @@ func (rs *repoMan) getLocalTargets() map[string]FileIntegrityMeta {
 	return <-files
 }
 
-func (rs *repoMan) verifySignatures(role marshaller, keys map[keyID]Key, sigs []Signature, threshold int) error {
+func verifySignatures(role marshaller, keys map[keyID]Key, sigs []Signature, threshold int) error {
 	// just in case, make sure threshold is not zero as this would mean we're not checking any sigs
 	if threshold <= 0 {
 		return errors.New("signature threshold must be greater than zero")
