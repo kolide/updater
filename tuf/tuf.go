@@ -522,6 +522,7 @@ func isLatest(local *RootTarget, fromNotary *RootTarget) bool {
 	if len(fromNotary.paths) > len(local.paths) {
 		return false
 	}
+
 	for targetName, fim := range fromNotary.paths {
 		lfim, ok := local.paths[targetName]
 		if !ok {
@@ -531,7 +532,6 @@ func isLatest(local *RootTarget, fromNotary *RootTarget) bool {
 			return false
 		}
 	}
-
 	return true
 }
 
@@ -595,11 +595,12 @@ func (rs *repoMan) downloadTarget(target string, fim *FileIntegrityMeta, destina
 	return nil
 }
 
-func (rs *repoMan) getLocalTargets() map[string]FileIntegrityMeta {
-	files := make(chan map[string]FileIntegrityMeta)
+func (rs *repoMan) getLocalTargets() fimMap {
+	files := make(chan fimMap)
 	rs.actionc <- func() {
 		if rs.targets != nil {
-			files <- rs.targets.Signed.Targets
+			// clone creates new copies of all the maps so we don't get race conditions
+			files <- rs.targets.paths.clone()
 		}
 	}
 	return <-files

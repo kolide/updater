@@ -116,7 +116,7 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 // Note that we expect that we do not use consistent snapshots and delegations are
 // not supported because for our purposes, both are unnecessary.
 // See https://github.com/theupdateframework/tuf/blob/904fa9b8df8ab8c632a210a2b05fd741e366788a/docs/tuf-spec.txt
-func (c *Client) Update() (files map[string]FileIntegrityMeta, latest bool, err error) {
+func (c *Client) Update() (files fimMap, latest bool, err error) {
 	latest, err = c.manager.refresh()
 	if err != nil {
 		return nil, latest, errors.Wrap(err, "refreshing state")
