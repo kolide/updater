@@ -48,7 +48,7 @@ func TestMockReader(t *testing.T) {
 
 func TestPopulateLocalTargetsWithChildren(t *testing.T) {
 	rdr := mockLocalRepoReader{"test/delegation/0/"}
-	root, err := getTargetTree(&rdr)
+	root, err := targetTreeBuilder(&rdr)
 	require.Nil(t, err)
 	require.NotNil(t, root)
 	assert.Len(t, root.targetPrecedence, 4)
@@ -70,7 +70,7 @@ func TestPopulateLocalTargetsWithChildren(t *testing.T) {
 
 func setupValidationTest(testRoot string) (*Root, *Snapshot, *RootTarget, error) {
 	rdr := mockLocalRepoReader{testRoot + "/"}
-	rootTarget, err := getTargetTree(&rdr)
+	rootTarget, err := targetTreeBuilder(&rdr)
 	if err != nil {
 		return nil, nil, nil, err
 	}

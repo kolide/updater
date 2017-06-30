@@ -55,7 +55,7 @@ func (r *localRepo) snapshot(opts ...func() interface{}) (*Snapshot, error) {
 }
 
 func (r *localRepo) targets(rdr roleFetcher, opts ...func() interface{}) (*RootTarget, error) {
-	trg, err := getTargetTree(rdr)
+	trg, err := targetTreeBuilder(rdr)
 	if err != nil {
 		return nil, errors.Wrap(err, "getting local targets role")
 	}
