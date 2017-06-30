@@ -19,7 +19,7 @@ type mockLocalRepoReader struct {
 	rootDir string
 }
 
-func (lr *mockLocalRepoReader) read(role string) (*Targets, error) {
+func (lr *mockLocalRepoReader) fetch(role string) (*Targets, error) {
 	buff, err := test.Asset(lr.rootDir + role + ".json")
 	if err != nil {
 		return nil, err
@@ -34,13 +34,13 @@ func (lr *mockLocalRepoReader) read(role string) (*Targets, error) {
 
 func TestMockReader(t *testing.T) {
 	rdr := mockLocalRepoReader{"test/delegation/0/"}
-	targ, err := rdr.read("targets")
+	targ, err := rdr.fetch("targets")
 	require.Nil(t, err)
 	require.NotNil(t, targ)
-	targ, err = rdr.read("targets/bar")
+	targ, err = rdr.fetch("targets/bar")
 	require.Nil(t, err)
 	require.NotNil(t, targ)
-	targ, err = rdr.read("targets/role/foo")
+	targ, err = rdr.fetch("targets/role/foo")
 	require.Nil(t, err)
 	require.NotNil(t, targ)
 
@@ -48,7 +48,7 @@ func TestMockReader(t *testing.T) {
 
 func TestPopulateLocalTargetsWithChildren(t *testing.T) {
 	rdr := mockLocalRepoReader{"test/delegation/0/"}
-	root, err := getTargetRole(&rdr)
+	root, err := getTargetTree(&rdr)
 	require.Nil(t, err)
 	require.NotNil(t, root)
 	assert.Len(t, root.targetPrecedence, 4)
@@ -70,7 +70,7 @@ func TestPopulateLocalTargetsWithChildren(t *testing.T) {
 
 func setupValidationTest(testRoot string) (*Root, *Snapshot, *RootTarget, error) {
 	rdr := mockLocalRepoReader{testRoot + "/"}
-	rootTarget, err := getTargetRole(&rdr)
+	rootTarget, err := getTargetTree(&rdr)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -113,7 +113,7 @@ func TestTargetReadWithValidations(t *testing.T) {
 	require.NotNil(t, snapshotRole)
 	require.NotNil(t, rootRole)
 
-	rrs := remoteReaderSettings{
+	rrs := notaryTargetFetcherSettings{
 		gun: testRootPath,
 		client: &http.Client{
 			Transport: &http.Transport{
@@ -128,7 +128,7 @@ func TestTargetReadWithValidations(t *testing.T) {
 		snapshotRole:    snapshotRole,
 		localRootTarget: rootTarget,
 	}
-	rtr, err := newRemoteTargetReader(&rrs)
+	rtr, err := newNotaryTargetFetcher(&rrs)
 	require.Nil(t, err)
 	require.NotNil(t, rtr)
 	var notary notaryRepo

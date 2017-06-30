@@ -24,7 +24,7 @@ const (
 type repo interface {
 	root(opts ...func() interface{}) (*Root, error)
 	snapshot(opts ...func() interface{}) (*Snapshot, error)
-	targets(rdr roleReader, opts ...func() interface{}) (*RootTarget, error)
+	targets(rdr roleFetcher, opts ...func() interface{}) (*RootTarget, error)
 	timestamp() (*Timestamp, error)
 }
 
@@ -127,18 +127,35 @@ func isRoleCorrect(r role, s interface{}) {
 	}
 }
 
-type roleReader interface {
-	read(path string) (*Targets, error)
+// roleFetcher is an abstraction of a thing that fetches Targets.
+type roleFetcher interface {
+	fetch(path string) (*Targets, error)
 }
 
-func getTargetRole(rdr roleReader) (*RootTarget, error) {
-	targ, err := rdr.read(string(roleTargets))
+// 4.5. **Perform a preorder depth-first search for metadata about the desired
+// target, beginning with the top-level targets role.**
+//
+// getTargetTree performs some special root node initialization and then
+// recursively calls getDelegatedTarget to do a preorder traversal of the
+// Targets tree.
+//
+// Each time a target node is encountered, it persists path information in proper
+// precedence according to the following section.
+// 4.5.1. If this role has been visited before, then skip this role (so that
+// cycles in the delegation graph are avoided).
+// Otherwise, if an application-specific maximum number of roles have been
+// visited, then go to step 5 (so that attackers cannot cause the client to
+// waste excessive bandwidth or time).
+// Otherwise, if this role contains metadata about the desired target, then go
+// to step 5.
+func getTargetTree(rdr roleFetcher) (*RootTarget, error) {
+	targ, err := rdr.fetch(string(roleTargets))
 	if err != nil {
 		return nil, err
 	}
 	root := RootTarget{
 		Targets:      targ,
-		paths:        make(fimMap),
+		paths:        make(FimMap),
 		targetLookup: make(map[string]*Targets),
 	}
 	root.append(string(roleTargets), targ)
@@ -152,8 +169,8 @@ func getTargetRole(rdr roleReader) (*RootTarget, error) {
 	return &root, nil
 }
 
-func getDelegatedTarget(rdr roleReader, root *RootTarget, roleName string) error {
-	target, err := rdr.read(roleName)
+func getDelegatedTarget(rdr roleFetcher, root *RootTarget, roleName string) error {
+	target, err := rdr.fetch(roleName)
 	if err != nil {
 		return err
 	}

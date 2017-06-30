@@ -480,11 +480,14 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, 
 	if ok {
 		opts = append(opts, testSHA512(hash))
 	}
-	previous, err := rs.repo.targets(&localTargetReader{rs.repo.baseDir()})
+	previous, err := rs.repo.targets(&localTargetFetcher{rs.repo.baseDir()})
 	if err != nil {
 		return nil, latest, errors.Wrap(err, "fetching local targets")
 	}
-	settings := &remoteReaderSettings{
+	// the fetcher we are creating will be called by getTargetTree each time it needs to
+	// download a child target while doing a preorder depth first traversal.
+	// TUF validations occur each time a target is read. See targetFetcher.
+	settings := &notaryTargetFetcherSettings{
 		gun:             rs.settings.GUN,
 		url:             rs.settings.NotaryURL,
 		maxResponseSize: defaultMaxResponseSize,
@@ -493,11 +496,11 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, 
 		snapshotRole:    snapshot,
 		localRootTarget: previous,
 	}
-	targetReader, err := newRemoteTargetReader(settings)
+	targetFetcher, err := newNotaryTargetFetcher(settings)
 	if err != nil {
 		return nil, false, errors.Wrap(err, "notary reader creation")
 	}
-	current, err := rs.notary.targets(targetReader, opts...)
+	current, err := rs.notary.targets(targetFetcher, opts...)
 	if err != nil {
 		return nil, latest, errors.Wrap(err, "retrieving timestamp from notary")
 	}
@@ -528,7 +531,7 @@ func isLatest(local *RootTarget, fromNotary *RootTarget) bool {
 		if !ok {
 			return false
 		}
-		if !fim.equal(&lfim) {
+		if !fim.equal(lfim) {
 			return false
 		}
 	}
@@ -595,8 +598,8 @@ func (rs *repoMan) downloadTarget(target string, fim *FileIntegrityMeta, destina
 	return nil
 }
 
-func (rs *repoMan) getLocalTargets() fimMap {
-	files := make(chan fimMap)
+func (rs *repoMan) getLocalTargets() FimMap {
+	files := make(chan FimMap)
 	rs.actionc <- func() {
 		if rs.targets != nil {
 			// clone creates new copies of all the maps so we don't get race conditions
