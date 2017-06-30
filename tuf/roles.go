@@ -144,15 +144,25 @@ type Targets struct {
 	delegateRole string
 }
 
+type fimMap map[string]FileIntegrityMeta
+
+func (fm fimMap) clone() fimMap {
+	newMap := make(fimMap)
+	for k, fim := range fm {
+		newMap[k] = *fim.clone()
+	}
+	return newMap
+}
+
 // RootTarget is the top level target it contains some bookeeping infomation
 // about targets
 type RootTarget struct {
 	*Targets
 	targetLookup map[string]*Targets
 	// Contains all the paths (targets) we know about. The highest precedence
-	// path is in the list, if a lower precedence targets has the same path,
+	// path is in the list, if a lower precedence item has the same path,
 	// it is discarded
-	paths            map[string]FileIntegrityMeta
+	paths            fimMap
 	targetPrecedence []*Targets
 }
 
@@ -172,11 +182,11 @@ func (rt *RootTarget) append(role string, targ *Targets) {
 
 // SignedTarget specifics of the Targets
 type SignedTarget struct {
-	Type        string                       `json:"_type"`
-	Delegations Delegations                  `json:"delegations"`
-	Expires     time.Time                    `json:"expires"`
-	Targets     map[string]FileIntegrityMeta `json:"targets"`
-	Version     int                          `json:"version"`
+	Type        string      `json:"_type"`
+	Delegations Delegations `json:"delegations"`
+	Expires     time.Time   `json:"expires"`
+	Targets     fimMap      `json:"targets"`
+	Version     int         `json:"version"`
 }
 
 func (sr SignedTarget) canonicalJSON() ([]byte, error) {
@@ -199,6 +209,17 @@ func (sig *Signature) base64Decoded() ([]byte, error) {
 type FileIntegrityMeta struct {
 	Hashes map[hashingMethod]string `json:"hashes"`
 	Length int64                    `json:"length"`
+}
+
+func (f FileIntegrityMeta) clone() *FileIntegrityMeta {
+	newFim := &FileIntegrityMeta{
+		Hashes: make(map[hashingMethod]string),
+		Length: f.Length,
+	}
+	for m, h := range f.Hashes {
+		newFim.Hashes[m] = h
+	}
+	return newFim
 }
 
 func (f FileIntegrityMeta) equal(fim *FileIntegrityMeta) bool {
