@@ -144,10 +144,12 @@ type Targets struct {
 	delegateRole string
 }
 
-type fimMap map[string]FileIntegrityMeta
+// FimMap is used to map paths to hashes and length information about that
+// file which is used for verification purposes when the file is downloaded.
+type FimMap map[string]FileIntegrityMeta
 
-func (fm fimMap) clone() fimMap {
-	newMap := make(fimMap)
+func (fm FimMap) clone() FimMap {
+	newMap := make(FimMap)
 	for k, fim := range fm {
 		newMap[k] = *fim.clone()
 	}
@@ -162,7 +164,7 @@ type RootTarget struct {
 	// Contains all the paths (targets) we know about. The highest precedence
 	// path is in the list, if a lower precedence item has the same path,
 	// it is discarded
-	paths            fimMap
+	paths            FimMap
 	targetPrecedence []*Targets
 }
 
@@ -185,7 +187,7 @@ type SignedTarget struct {
 	Type        string      `json:"_type"`
 	Delegations Delegations `json:"delegations"`
 	Expires     time.Time   `json:"expires"`
-	Targets     fimMap      `json:"targets"`
+	Targets     FimMap      `json:"targets"`
 	Version     int         `json:"version"`
 }
 
@@ -222,7 +224,7 @@ func (f FileIntegrityMeta) clone() *FileIntegrityMeta {
 	return newFim
 }
 
-func (f FileIntegrityMeta) equal(fim *FileIntegrityMeta) bool {
+func (f FileIntegrityMeta) equal(fim FileIntegrityMeta) bool {
 	if f.Length != fim.Length {
 		return false
 	}

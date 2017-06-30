@@ -233,7 +233,7 @@ func TestBackupAndRecover(t *testing.T) {
 	require.Nil(t, err)
 	rm.timestamp, err = repo.timestamp()
 	require.Nil(t, err)
-	rm.targets, err = repo.targets(&localTargetReader{localRepoPath})
+	rm.targets, err = repo.targets(&localTargetFetcher{localRepoPath})
 	require.Nil(t, err)
 	rm.snapshot, err = repo.snapshot()
 	require.Nil(t, err)
