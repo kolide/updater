@@ -220,7 +220,7 @@ func (r *notaryRepo) root(opts ...func() interface{}) (*Root, error) {
 }
 
 func (r *notaryRepo) targets(rdr roleFetcher, opts ...func() interface{}) (*RootTarget, error) {
-	rootTarget, err := getTargetTree(rdr)
+	rootTarget, err := targetTreeBuilder(rdr)
 	if err != nil {
 		return nil, errors.Wrap(err, "getting remote target role")
 	}

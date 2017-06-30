@@ -135,7 +135,7 @@ type roleFetcher interface {
 // 4.5. **Perform a preorder depth-first search for metadata about the desired
 // target, beginning with the top-level targets role.**
 //
-// getTargetTree performs some special root node initialization and then
+// targetTreeBuilder performs some special root node initialization and then
 // recursively calls getDelegatedTarget to do a preorder traversal of the
 // Targets tree.
 //
@@ -148,7 +148,7 @@ type roleFetcher interface {
 // waste excessive bandwidth or time).
 // Otherwise, if this role contains metadata about the desired target, then go
 // to step 5.
-func getTargetTree(rdr roleFetcher) (*RootTarget, error) {
+func targetTreeBuilder(rdr roleFetcher) (*RootTarget, error) {
 	targ, err := rdr.fetch(string(roleTargets))
 	if err != nil {
 		return nil, err
