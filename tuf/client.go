@@ -192,12 +192,15 @@ func (c *Client) downloadIfNew(old, new string) {
 		c.notificationHandler("", err)
 		return
 	}
-	defer destination.Close()
 	if err := c.Download(c.watchedTarget, destination); err != nil {
 		destination.Close()
 		os.Remove(dpath)
+		c.notificationHandler("", err)
 		return
 	} else {
+		// the file descriptor must be closed in order to allow the
+		// notificationHandler to work with the file in the staging path.
+		destination.Close()
 		c.notificationHandler(dpath, nil)
 		return
 	}
