@@ -14,7 +14,6 @@ import (
 	"github.com/kolide/updater/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/y0ssar1an/q"
 )
 
 func TestCheckForDirectoryPresence(t *testing.T) {
@@ -72,7 +71,6 @@ func createMockRepo(sources []string) (string, []string, error) {
 			return "", nil, err
 		}
 	}
-	q.Q(tufDir)
 	return tufDir, locations, nil
 }
 
