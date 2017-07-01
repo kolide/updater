@@ -20,6 +20,7 @@ type Client struct {
 
 	// values to autoupdate
 	checkFrequency      time.Duration
+	backupFileAge       time.Duration
 	watchedTarget       string
 	stagingPath         string
 	notificationHandler NotificationHandler
@@ -43,6 +44,14 @@ type Option func(*Client)
 func WithFrequency(duration time.Duration) Option {
 	return func(c *Client) {
 		c.checkFrequency = duration
+	}
+}
+
+// WithBackupAge changes the amount of time that repository backup files
+// are kept before being removed. Current default is one day.
+func WithBackupAge(age time.Duration) Option {
+	return func(c *Client) {
+		c.backupFileAge = age
 	}
 }
 
@@ -86,6 +95,7 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 		maxResponseSize: defaultMaxResponseSize,
 		client:          defaultHttpClient(),
 		checkFrequency:  defaultCheckFrequency,
+		backupFileAge:   defaultBackupAge,
 		quit:            make(chan chan struct{}),
 	}
 	for _, opt := range opts {
@@ -124,7 +134,16 @@ func (c *Client) Update() (files FimMap, latest bool, err error) {
 		return nil, latest, errors.Wrap(err, "refreshing state")
 	}
 
-	if err := c.manager.save(getTag()); err != nil {
+	ss := saveSettings{
+		tufRepositoryRootDir: c.manager.settings.LocalRepoPath,
+		backupAge:            c.backupFileAge,
+		rootRole:             c.manager.root,
+		timestampRole:        c.manager.timestamp,
+		snapshotRole:         c.manager.snapshot,
+		targetsRole:          c.manager.targets,
+	}
+
+	if err := saveTufRepository(&ss); err != nil {
 		return nil, latest, errors.Wrap(err, "unable to save tuf repo state")
 	}
 

@@ -87,8 +87,8 @@ var testFilePaths = []string{
 }
 
 func TestBackupAndRecovery(t *testing.T) {
-	olderBackupTag := time.Now().UTC().Add(-61 * time.Minute).Format(filetimeFormat)
-	newerBackupTag := time.Now().UTC().Add(-59 * time.Minute).Format(filetimeFormat)
+	olderBackupTag := time.Now().UTC().Add(-61 * time.Minute).Format(backupFileTimeTagFormat)
+	newerBackupTag := time.Now().UTC().Add(-59 * time.Minute).Format(backupFileTimeTagFormat)
 
 	repoDir, repoFileNames, err := createMockRepo(testFilePaths)
 	require.Nil(t, err)
@@ -138,7 +138,6 @@ func TestBackupAndRecovery(t *testing.T) {
 			assert.Nil(t, err)
 		})
 	}
-
 }
 
 func TestSaveWithTargetTree(t *testing.T) {

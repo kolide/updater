@@ -38,8 +38,6 @@ const (
 
 	hashSHA256 hashingMethod = "sha256"
 	hashSHA512 hashingMethod = "sha512"
-
-	filetimeFormat = "20060102150405"
 )
 
 type marshaller interface {

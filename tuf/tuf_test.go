@@ -13,7 +13,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"testing"
-	"time"
 
 	"github.com/kolide/updater/test"
 	"github.com/stretchr/testify/assert"
@@ -167,85 +166,6 @@ func setupTufRemote(version int, notfoundVersion string, t *testing.T) (*httptes
 	}))
 
 	return notary, mirror
-}
-
-func TestBackupAndRecover(t *testing.T) {
-	localRepoPath, stagingPath := setupTufLocal(0, t)
-	defer os.RemoveAll(localRepoPath)
-	defer os.RemoveAll(stagingPath)
-
-	rm := repoMan{
-		settings: &Settings{
-			LocalRepoPath: localRepoPath,
-		},
-	}
-	tag := time.Now().Format(time.Now().Format(filetimeFormat))
-	err := rm.backupRoles(tag)
-	require.Nil(t, err)
-
-	// remove files and make sure that they get restored
-	backupFiles := []string{
-		filepath.Join(localRepoPath, fmt.Sprintf("root.%s.json", tag)),
-		filepath.Join(localRepoPath, fmt.Sprintf("timestamp.%s.json", tag)),
-		filepath.Join(localRepoPath, fmt.Sprintf("snapshot.%s.json", tag)),
-		filepath.Join(localRepoPath, fmt.Sprintf("targets.%s.json", tag)),
-	}
-	files := []string{
-		filepath.Join(localRepoPath, "root.json"),
-		filepath.Join(localRepoPath, "timestamp.json"),
-		filepath.Join(localRepoPath, "snapshot.json"),
-		filepath.Join(localRepoPath, "targets.json"),
-	}
-	// backup file should exist, regular file should not
-	for i := range files {
-		_, err = os.Stat(files[i])
-		assert.True(t, os.IsNotExist(err))
-		_, err = os.Stat(backupFiles[i])
-		assert.Nil(t, err)
-	}
-
-	err = rm.restoreRoles(tag)
-	assert.Nil(t, err)
-	// regular file should exist, backup should not
-	for i := range files {
-		_, err = os.Stat(files[i])
-		assert.Nil(t, err)
-		_, err = os.Stat(backupFiles[i])
-		assert.True(t, os.IsNotExist(err))
-	}
-
-	// do a save that we know will blow up
-	err = rm.save(tag)
-	require.NotNil(t, err)
-
-	// should have original files, no backup files
-	for i := range files {
-		_, err = os.Stat(files[i])
-		assert.Nil(t, err)
-		_, err = os.Stat(backupFiles[i])
-		assert.True(t, os.IsNotExist(err))
-	}
-
-	// now do a save that should work
-	repo, err := newLocalRepo(localRepoPath)
-	require.Nil(t, err)
-	rm.root, err = repo.root()
-	require.Nil(t, err)
-	rm.timestamp, err = repo.timestamp()
-	require.Nil(t, err)
-	rm.targets, err = repo.targets(&localTargetFetcher{localRepoPath})
-	require.Nil(t, err)
-	rm.snapshot, err = repo.snapshot()
-	require.Nil(t, err)
-
-	err = rm.save(tag)
-	require.Nil(t, err)
-
-	// should have original files
-	for i := range files {
-		_, err = os.Stat(files[i])
-		assert.Nil(t, err)
-	}
 }
 
 // these tests work on versioned role files and targets that we create interactively

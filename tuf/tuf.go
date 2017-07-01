@@ -1,18 +1,12 @@
 package tuf
 
 import (
-	"bytes"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
-	"path/filepath"
-	"reflect"
 	"time"
 
-	cjson "github.com/docker/go/canonical/json"
 	"github.com/pkg/errors"
 )
 
@@ -64,11 +58,6 @@ func (s *Settings) verify() error {
 		return errors.Wrap(err, "mirror url validation")
 	}
 	return nil
-}
-
-// getTag a timestamp based moniker
-func getTag() string {
-	return time.Now().Format(time.Now().Format(filetimeFormat))
 }
 
 type repoMan struct {
@@ -148,120 +137,6 @@ func newRepoMan(repo persistentRepo, notary remoteRepo, settings *Settings, clie
 	}
 	go man.loop()
 	return man
-}
-
-func (rs *repoMan) save(backupTag string) (err error) {
-	defer func() {
-		if err != nil {
-			rs.restoreRoles(backupTag)
-			return
-		}
-		// clean up backup files
-		err = rs.deleteBackupRoles(backupTag)
-	}()
-	var buff []byte
-	roles := []struct {
-		cached interface{}
-		name   role
-	}{
-		{rs.root, roleRoot},
-		{rs.timestamp, roleTimestamp},
-		{rs.snapshot, roleSnapshot},
-		{rs.targets, roleTargets},
-	}
-	err = rs.backupRoles(backupTag)
-	if err != nil {
-		return errors.Wrap(err, "local repo backup failed")
-	}
-	for _, r := range roles {
-		if reflect.ValueOf(r.cached).IsNil() {
-			err = errors.Errorf("can't save %q, cached role is nil", r)
-			break
-		}
-		buff, err = cjson.MarshalCanonical(r.cached)
-		if err != nil {
-			err = errors.Wrap(err, "marshalling role failed")
-			break
-		}
-		err = rs.saveRole(r.name, buff)
-		if err != nil {
-			err = errors.Wrap(err, "saving role")
-			break
-		}
-	}
-	return err
-}
-
-func (rs *repoMan) backupRoles(tag string) error {
-	roles := []role{roleRoot, roleTargets, roleSnapshot, roleTimestamp}
-	for _, r := range roles {
-		source := filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.json", r))
-		destination := filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.%s.json", r, tag))
-		err := os.Rename(source, destination)
-		if err != nil {
-			return errors.Wrap(err, "backing up role")
-		}
-	}
-	return nil
-}
-
-func (rs *repoMan) restoreRoles(tag string) error {
-	roles := []role{roleRoot, roleTargets, roleSnapshot, roleTimestamp}
-	for _, r := range roles {
-		destination := filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.json", r))
-		source := filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.%s.json", r, tag))
-		_, err := os.Stat(source)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return errors.Wrap(err, "problem restoring roles")
-		}
-		err = os.Rename(source, destination)
-		if err != nil {
-			return errors.Wrap(err, "moving backup role")
-		}
-	}
-	return nil
-}
-
-// If local TUF repo was successfully updated we want to get rid of backup files
-// that they don't take up drive space.
-func (rs *repoMan) deleteBackupRoles(tag string) error {
-	roles := []role{roleRoot, roleTargets, roleSnapshot, roleTimestamp}
-	for _, r := range roles {
-		backupFilePath := filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.%s.json", r, tag))
-		fs, err := os.Stat(backupFilePath)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return errors.Wrap(err, "checking existance of role backup file")
-		}
-		if fs.Mode().IsRegular() {
-			err = os.Remove(backupFilePath)
-			if err != nil {
-				return errors.Wrap(err, "removing role backup file")
-			}
-		}
-	}
-	return nil
-}
-
-func (rs *repoMan) saveRole(r role, js []byte) error {
-	fs, err := os.OpenFile(filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.json", r)), os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return errors.Wrap(err, "saving role file")
-	}
-	defer fs.Close()
-	written, err := io.Copy(fs, bytes.NewBuffer(js))
-	if err != nil {
-		return errors.Wrap(err, "writing role to open file")
-	}
-	if written != int64(len(js)) {
-		return errors.New("not all of the role was written to file")
-	}
-	return nil
 }
 
 // Root role processing TUF spec section 5.1.0 through 5.1.1.9

@@ -1,5 +1,8 @@
 package tuf
 
+////////////////////////////////////////////////////////////////////////////////
+// Methods in this file are used to save and backup the TUF repository
+////////////////////////////////////////////////////////////////////////////////
 import (
 	"bytes"
 	"fmt"
@@ -13,6 +16,8 @@ import (
 	cjson "github.com/docker/go/canonical/json"
 	"github.com/pkg/errors"
 )
+
+const backupFileTimeTagFormat = "20060102150405"
 
 var (
 	suffixMatcher = regexp.MustCompile("\\.json$")
@@ -82,7 +87,7 @@ func removeAgedBackups(tufRoot string, age time.Duration) error {
 		if !fi.IsDir() {
 			if backupMatcher.MatchString(path) {
 				timePart := path[len(path)-19 : len(path)-5]
-				backupTime, err := time.Parse(filetimeFormat, timePart)
+				backupTime, err := time.Parse(backupFileTimeTagFormat, timePart)
 				if err != nil {
 					return err
 				}
@@ -109,8 +114,7 @@ type saveSettings struct {
 }
 
 func saveTufRepository(ss *saveSettings) (err error) {
-	tag := getTag()
-
+	tag := time.Now().UTC().Format(time.Now().Format(backupFileTimeTagFormat))
 	err = removeAgedBackups(ss.tufRepositoryRootDir, ss.backupAge)
 	if err != nil {
 		return errors.Wrap(err, "saving roles")
