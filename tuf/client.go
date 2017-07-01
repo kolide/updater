@@ -31,7 +31,9 @@ type Client struct {
 
 const (
 	defaultCheckFrequency  = 1 * time.Hour
+	defaultBackupAge       = 24 * time.Hour
 	defaultMaxResponseSize = 5 * 1024 * 1024 // 5 Megabytes
+
 )
 
 // Option allows customization of the Client.

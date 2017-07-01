@@ -23,7 +23,7 @@ var (
 	errHashIncorrect          = errors.New("file hash does not match")
 	errLengthIncorrect        = errors.New("file length incorrect")
 	errNoSuchTarget           = errors.New("no such target")
-	errNotFound               = errors.New("remote resource does not exist")
+	errNotFound               = errors.New("resource does not exist")
 	errMaxDelegationsExceeded = errors.New("too many delegations")
 	errTargetSeen             = errors.New("target already seen in tree")
 	errFailedIntegrityCheck   = errors.New("target file fails integrity check")
@@ -484,7 +484,7 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, 
 	if err != nil {
 		return nil, latest, errors.Wrap(err, "fetching local targets")
 	}
-	// the fetcher we are creating will be called by getTargetTree each time it needs to
+	// the fetcher we are creating will be called by targetTreeBuilder each time it needs to
 	// download a child target while doing a preorder depth first traversal.
 	// TUF validations occur each time a target is read. See targetFetcher.
 	settings := &notaryTargetFetcherSettings{
