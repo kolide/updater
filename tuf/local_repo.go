@@ -61,18 +61,6 @@ func (r *localRepo) targets(rdr roleFetcher, opts ...func() interface{}) (*RootT
 	return trg, nil
 }
 
-// save persists role information, r is the role type, and
-// data is the class containing the role information
-func (r *localRepo) save(roleName role, data interface{}) error {
-	isRoleCorrect(roleName, data)
-	f, err := os.OpenFile(filepath.Join(r.repoPath, fmt.Sprintf("%s.json", roleName)), os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return errors.Wrap(err, "opening role file for writing")
-	}
-	defer f.Close()
-	return json.NewEncoder(f).Encode(data)
-}
-
 func (r *localRepo) getRole(name role, val interface{}) error {
 	err := validateRole(name)
 	if err != nil {

@@ -35,7 +35,6 @@ type remoteRepo interface {
 
 type persistentRepo interface {
 	repo
-	save(role, interface{}) error
 	baseDir() string
 }
 

@@ -185,10 +185,11 @@ func TestClientNoUpdates(t *testing.T) {
 	mockClock := clock.NewMockClock(testTime)
 	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()), withClock(mockClock))
 	require.Nil(t, err)
-
-	_, latest, err := client.Update()
+	changes, err := client.Update()
 	require.Nil(t, err)
-	require.True(t, latest)
+	require.NotNil(t, changes)
+	assert.Empty(t, changes)
+
 }
 
 func testSettings(localRepo string, notary, mirror *httptest.Server) *Settings {
@@ -213,7 +214,6 @@ func testHTTPClient() *http.Client {
 
 func TestClientWithUpdates(t *testing.T) {
 	testTime, _ := time.Parse(time.UnixDate, "Sat Jul 1 18:00:00 CST 2017")
-
 	localRepoPath, stagingPath := setupTufLocal(0, t)
 	defer os.RemoveAll(localRepoPath)
 	defer os.RemoveAll(stagingPath)
@@ -226,9 +226,10 @@ func TestClientWithUpdates(t *testing.T) {
 	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()), withClock(clock.NewMockClock(testTime)))
 	require.Nil(t, err)
 
-	_, latest, err := client.Update()
+	changes, err := client.Update()
 	require.Nil(t, err)
-	require.False(t, latest)
+	require.NotNil(t, changes)
+	require.NotEmpty(t, changes)
 
 	// make sure all the files we are supposed to create are there
 	files := []string{
@@ -258,9 +259,9 @@ func TestWithRootKeyRotation(t *testing.T) {
 	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()), withClock(clock.NewMockClock(testTime)))
 	require.Nil(t, err)
 
-	_, latest, err := client.Update()
+	changes, err := client.Update()
 	require.Nil(t, err)
-	require.True(t, latest)
+	require.Empty(t, changes)
 
 	// make sure all the files we are supposed to create are there
 	files := []string{
@@ -290,9 +291,10 @@ func TestWithTimestampKeyRotation(t *testing.T) {
 	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()), withClock(clock.NewMockClock(testTime)))
 	require.Nil(t, err)
 
-	_, latest, err := client.Update()
+	changes, err := client.Update()
 	require.Nil(t, err)
-	require.True(t, latest)
+	require.NotNil(t, changes)
+	require.Empty(t, changes)
 
 	// make sure all the files we are supposed to create are there
 	files := []string{

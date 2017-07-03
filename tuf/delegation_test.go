@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -149,25 +150,20 @@ func TestTargetReadWithValidations(t *testing.T) {
 
 func noChangeDetected(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
 	client, err := NewClient(settings, WithHTTPClient(c), withClock(k))
-
 	require.Nil(t, err)
-	fims, latest, err := client.Update()
+	changes, err := client.Update()
 	require.Nil(t, err)
-	assert.True(t, latest)
-	require.NotNil(t, fims)
-	assert.Len(t, fims, 2)
-
+	assert.NotNil(t, changes)
+	require.Empty(t, changes)
 }
 
 func existingPathChanged(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
 	client, err := NewClient(settings, WithHTTPClient(c), withClock(k))
 	require.Nil(t, err)
-	fims, latest, err := client.Update()
+	changes, err := client.Update()
 	require.Nil(t, err)
 	// a path changed so we don't have latest
-	assert.False(t, latest)
-	require.NotNil(t, fims)
-	assert.Len(t, fims, 2)
+	require.True(t, hasTarget("edge/target", changes))
 	download := filepath.Join(stageDir, "target")
 	out, err := os.Create(download)
 	require.Nil(t, err)
@@ -177,7 +173,7 @@ func existingPathChanged(t *testing.T, settings *Settings, c *http.Client, stage
 	out.Close()
 	fi, err := os.Stat(download)
 	require.Nil(t, err)
-	fim, ok := fims["edge/target"]
+	fim, ok := client.manager.targets.paths["edge/target"]
 	require.True(t, ok)
 	assert.Equal(t, fi.Size(), fim.Length)
 }
@@ -187,13 +183,12 @@ func existingPathChanged(t *testing.T, settings *Settings, c *http.Client, stage
 func nonprecedentPathChange(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
 	client, err := NewClient(settings, WithHTTPClient(c), withClock(k))
 	require.Nil(t, err)
-	fims, latest, err := client.Update()
+	changed, err := client.Update()
 	require.Nil(t, err)
 	// Path changed, but not by the highest precedence delegate, so we have the
 	// latest.
-	assert.True(t, latest)
-	require.NotNil(t, fims)
-	assert.Len(t, fims, 2)
+	require.NotNil(t, changed)
+	assert.Empty(t, changed)
 	download := filepath.Join(stageDir, "target")
 	out, err := os.Create(download)
 	require.Nil(t, err)
@@ -205,9 +200,19 @@ func nonprecedentPathChange(t *testing.T, settings *Settings, c *http.Client, st
 }
 
 func autoupdateDetectedChange(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
-	called := false
+	var (
+		called    bool
+		path      string
+		updateErr error
+		lock      sync.Mutex
+	)
+
 	onUpdate := func(stagingPath string, err error) {
+		lock.Lock()
+		defer lock.Unlock()
 		called = true
+		path = stagingPath
+		updateErr = err
 	}
 	client, err := NewClient(
 		settings, WithHTTPClient(c),
@@ -215,14 +220,16 @@ func autoupdateDetectedChange(t *testing.T, settings *Settings, c *http.Client, 
 		WithAutoUpdate("edge/target", stageDir, onUpdate),
 	)
 	require.Nil(t, err)
-	// add time, monitor goroutine should kick off
-	k.AddTime(defaultCheckFrequency + (10 * time.Second))
-	time.Sleep(2 * time.Second)
-	//k.AddTime(defaultCheckFrequency + (10 * time.Second))
+	time.Sleep(500 * time.Millisecond)
 	defer client.Stop()
 
-	assert.True(t, called)
-
+	lock.Lock()
+	defer lock.Unlock()
+	require.True(t, called)
+	assert.Regexp(t, regexp.MustCompile("/edge/target$"), path)
+	assert.Nil(t, updateErr)
+	_, err = os.Stat(path)
+	assert.Nil(t, err)
 }
 
 const (
@@ -273,10 +280,10 @@ func TestEndToEnd(t *testing.T) {
 		remoteRepoVersion int
 		testCase          func(t *testing.T, settings *Settings, client *http.Client, stageDir string, c *clock.MockClock)
 	}{
-		//{"no change detected", 0, 1, noChangeDetected},
-		//{"existing path changed", 1, 2, existingPathChanged},
+		{"no change detected", 0, 1, noChangeDetected},
+		{"existing path changed", 1, 2, existingPathChanged},
 		{"autoupdate with change", 1, 2, autoupdateDetectedChange},
-		//{"lower precedent change", 2, 3, nonprecedentPathChange},
+		{"lower precedent change", 2, 3, nonprecedentPathChange},
 	}
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {

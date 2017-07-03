@@ -18,7 +18,6 @@ type Client struct {
 	// be worthwile to export the repoMan type as Client instead, but
 	// wrapping it reduces the amount of present refactoring work.
 	manager *repoMan
-
 	// values to autoupdate
 	checkFrequency      time.Duration
 	backupFileAge       time.Duration
@@ -35,7 +34,6 @@ const (
 	defaultCheckFrequency  = 1 * time.Hour
 	defaultBackupAge       = 24 * time.Hour
 	defaultMaxResponseSize = 5 * 1024 * 1024 // 5 Megabytes
-
 )
 
 // Option allows customization of the Client.
@@ -121,7 +119,7 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 	if err != nil {
 		return nil, errors.New("creating local tuf role repo")
 	}
-	client.manager = newRepoMan(localRepo, notary, settings, notary.client, client.klock)
+	client.manager = newRepoMan(localRepo, notary, settings, notary.client, client.backupFileAge, client.klock)
 	if client.watchedTarget != "" {
 		go client.monitorTarget()
 	}
@@ -129,85 +127,63 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 }
 
 // Update updates the local TUF metadata from a remote repository. If the update is successful,
-// a dictionary of available files will be returned.
+// a list of files that have changed will be returned.
 //
 // Update gets the current metadata from the notary repository and performs
 // requisite checks and validations as specified in the TUF spec section 5.1 'The Client Application'.
 // Note that we expect that we do not use consistent snapshots and delegations are
 // not supported because for our purposes, both are unnecessary.
 // See https://github.com/theupdateframework/tuf/blob/904fa9b8df8ab8c632a210a2b05fd741e366788a/docs/tuf-spec.txt
-func (c *Client) Update() (files FimMap, latest bool, err error) {
-	latest, err = c.manager.refresh()
+func (c *Client) Update() ([]string, error) {
+	err := c.manager.refresh()
 	if err != nil {
-		return nil, latest, errors.Wrap(err, "refreshing state")
+		return nil, errors.Wrap(err, "refreshing state")
 	}
-	ss := saveSettings{
-		tufRepositoryRootDir: c.manager.settings.LocalRepoPath,
-		backupAge:            c.backupFileAge,
-		rootRole:             c.manager.root,
-		timestampRole:        c.manager.timestamp,
-		snapshotRole:         c.manager.snapshot,
-		targetsRole:          c.manager.targets,
-	}
-
-	if err := saveTufRepository(&ss); err != nil {
-		return nil, latest, errors.Wrap(err, "unable to save tuf repo state")
-	}
-	files = c.manager.getLocalTargets()
-	return files, latest, nil
+	changes := c.manager.getLocalTargets()
+	return changes, nil
 }
 
 // Download downloads a local resource from a remote URL.
 // Download will use local TUF metadata, so it's important to call Update before dowloading a new file.
 func (c *Client) Download(targetName string, destination io.Writer) error {
-	files := c.manager.getLocalTargets()
-	fim, ok := files[targetName]
-	if !ok {
-		return errNoSuchTarget
-	}
-	if err := c.manager.downloadTarget(targetName, &fim, destination); err != nil {
+	if err := c.manager.downloadTarget(targetName, destination); err != nil {
 		return errors.Wrap(err, "downloading target")
 	}
 	return nil
 }
 
 func (c *Client) monitorTarget() {
-	var hash string
 	ticker := c.klock.NewTicker(c.checkFrequency)
 	for {
-		files, _, err := c.Update()
+		changes, err := c.Update()
 		if err != nil {
 			c.notificationHandler("", err)
 		}
-		target, ok := files[c.watchedTarget]
-		if !ok {
-			c.notificationHandler("", errors.New("no such target"))
+		if hasTarget(c.watchedTarget, changes) {
+			c.download()
 		}
-		metaHash := func() string {
-			if h, ok := target.Hashes["sha256"]; ok {
-				return h
-			} else if h, ok := target.Hashes["sha512"]; ok {
-				return h
-			} else {
-				return ""
-			}
-		}
-		h := metaHash()
-		c.downloadIfNew(hash, h)
-		hash = h
 		select {
 		case <-ticker.Chan():
 		case quit := <-c.quit:
+			c.manager.Stop()
 			close(quit)
 			return
 		}
 	}
 }
 
-func (c *Client) downloadIfNew(old, new string) {
-	if old == "" || old == new {
-		return
+func hasTarget(target string, changes []string) bool {
+	if changes != nil {
+		for _, change := range changes {
+			if change == target {
+				return true
+			}
+		}
 	}
+	return false
+}
+
+func (c *Client) download() {
 	dpath := filepath.Join(c.stagingPath, c.watchedTarget)
 	if err := os.MkdirAll(filepath.Dir(dpath), 0755); err != nil {
 		c.notificationHandler("", err)
@@ -233,8 +209,6 @@ func (c *Client) downloadIfNew(old, new string) {
 }
 
 func (c *Client) Stop() {
-	c.manager.Stop()
-
 	// stop autoupdate loop
 	if c.watchedTarget != "" {
 		quit := make(chan struct{})

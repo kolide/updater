@@ -146,14 +146,6 @@ type Targets struct {
 // file which is used for verification purposes when the file is downloaded.
 type FimMap map[string]FileIntegrityMeta
 
-func (fm FimMap) clone() FimMap {
-	newMap := make(FimMap)
-	for k, fim := range fm {
-		newMap[k] = *fim.clone()
-	}
-	return newMap
-}
-
 // RootTarget is the top level target it contains some bookeeping infomation
 // about targets
 type RootTarget struct {
@@ -174,7 +166,6 @@ func (rt *RootTarget) append(role string, targ *Targets) {
 	// ignore it because a higher precedence delegate has already
 	// added it
 	for targetName, fim := range targ.Signed.Targets {
-
 		if _, ok := rt.paths[targetName]; !ok {
 			rt.paths[targetName] = fim
 		}
@@ -210,17 +201,6 @@ func (sig *Signature) base64Decoded() ([]byte, error) {
 type FileIntegrityMeta struct {
 	Hashes map[hashingMethod]string `json:"hashes"`
 	Length int64                    `json:"length"`
-}
-
-func (f FileIntegrityMeta) clone() *FileIntegrityMeta {
-	newFim := &FileIntegrityMeta{
-		Hashes: make(map[hashingMethod]string),
-		Length: f.Length,
-	}
-	for m, h := range f.Hashes {
-		newFim.Hashes[m] = h
-	}
-	return newFim
 }
 
 func (f FileIntegrityMeta) equal(fim FileIntegrityMeta) bool {
@@ -291,7 +271,8 @@ func (fim FileIntegrityMeta) verify(rdr io.Reader) error {
 	return nil
 }
 
-// Delegations signing information for targets hosted by external principals
+// Delegations contain signing information for targets hosted by external principals. Delegations
+// are children of targets.
 type Delegations struct {
 	Keys  map[keyID]Key    `json:"keys"`
 	Roles []DelegationRole `json:"roles"`

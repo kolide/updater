@@ -73,6 +73,8 @@ type repoMan struct {
 	klock     clock.Clock
 	actionc   chan func()
 	quit      chan chan struct{}
+	changed   []string
+	backupAge time.Duration
 }
 
 func (rs *repoMan) Stop() {
@@ -80,10 +82,26 @@ func (rs *repoMan) Stop() {
 	rs.quit <- quit
 	<-quit
 }
+func (rs *repoMan) save() error {
 
-func (rs *repoMan) refresh() (bool, error) {
+	ss := saveSettings{
+		tufRepositoryRootDir: rs.settings.LocalRepoPath,
+		backupAge:            rs.backupAge,
+		rootRole:             rs.root,
+		timestampRole:        rs.timestamp,
+		snapshotRole:         rs.snapshot,
+		targetsRole:          rs.targets,
+	}
+	if err := saveTufRepository(&ss); err != nil {
+		return errors.Wrap(err, "failed to save tuf repo")
+
+	}
+	return nil
+
+}
+
+func (rs *repoMan) refresh() error {
 	errc := make(chan error)
-	var isLatest bool
 	rs.actionc <- func() {
 		root, err := rs.refreshRoot()
 		if err != nil {
@@ -103,16 +121,20 @@ func (rs *repoMan) refresh() (bool, error) {
 			return
 		}
 		rs.snapshot = snapshot
-		targets, latest, err := rs.refreshTargets(root, snapshot)
+		targets, changed, err := rs.refreshTargets(root, snapshot)
 		if err != nil {
 			errc <- errors.Wrap(err, "refreshing targets")
 			return
 		}
-		isLatest = latest
 		rs.targets = targets
+		rs.changed = changed
+		if err := rs.save(); err != nil {
+			errc <- errors.Wrap(err, "saving new tuf repo")
+			return
+		}
 		errc <- nil
 	}
-	return isLatest, <-errc
+	return <-errc
 }
 
 func (rs *repoMan) loop() {
@@ -127,15 +149,16 @@ func (rs *repoMan) loop() {
 	}
 }
 
-func newRepoMan(repo persistentRepo, notary remoteRepo, settings *Settings, client *http.Client, k clock.Clock) *repoMan {
+func newRepoMan(repo persistentRepo, notary remoteRepo, settings *Settings, client *http.Client, backupAge time.Duration, k clock.Clock) *repoMan {
 	man := &repoMan{
-		settings: settings,
-		repo:     repo,
-		notary:   notary,
-		client:   client,
-		klock:    k,
-		actionc:  make(chan func()),
-		quit:     make(chan chan struct{}),
+		settings:  settings,
+		repo:      repo,
+		notary:    notary,
+		client:    client,
+		klock:     k,
+		backupAge: backupAge,
+		actionc:   make(chan func()),
+		quit:      make(chan chan struct{}),
 	}
 	go man.loop()
 	return man
@@ -324,8 +347,9 @@ func (rs *repoMan) refreshSnapshot(root *Root, timestamp *Timestamp) (*Snapshot,
 	return current, nil
 }
 
-// Targets processing section 5.4 through 5.5.2 in the TUF spec
-func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, bool, error) {
+// Targets processing section 5.4 through 5.5.2 in the TUF spec. It returns
+// the latest targets and a list of any paths that have changed
+func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, []string, error) {
 	// 4. **Download and check the top-level targets metadata file**, up to either
 	// the number of bytes specified in the snapshot metadata file, or some
 	// Z number of bytes. The value for Z is set by the authors of the application
@@ -342,10 +366,9 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, 
 	// number of this metadata file MUST match the snapshot metadata. This is
 	// done, in part, to prevent a mix-and-match attack by man-in-the-middle
 	// attackers.
-	latest := true
 	fim, ok := snapshot.Signed.Meta[roleTargets]
 	if !ok {
-		return nil, latest, errors.New("missing target metadata in snapshot")
+		return nil, nil, errors.New("missing target metadata in snapshot")
 	}
 	var opts []func() interface{}
 	opts = append(opts, expectedSize(fim.Length))
@@ -359,7 +382,7 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, 
 	}
 	previous, err := rs.repo.targets(&localTargetFetcher{rs.repo.baseDir()})
 	if err != nil {
-		return nil, latest, errors.Wrap(err, "fetching local targets")
+		return nil, nil, errors.Wrap(err, "fetching local targets")
 	}
 	// the fetcher we are creating will be called by targetTreeBuilder each time it needs to
 	// download a child target while doing a preorder depth first traversal.
@@ -376,44 +399,33 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, 
 	}
 	targetFetcher, err := newNotaryTargetFetcher(settings)
 	if err != nil {
-		return nil, false, errors.Wrap(err, "notary reader creation")
+		return nil, nil, errors.Wrap(err, "notary reader creation")
 	}
 	current, err := rs.notary.targets(targetFetcher, opts...)
 	if err != nil {
-		return nil, latest, errors.Wrap(err, "retrieving timestamp from notary")
+		return nil, nil, errors.Wrap(err, "retrieving timestamp from notary")
 	}
-	latest = isLatest(previous, current)
-	return current, latest, nil
+	changed := getChangedPaths(previous, current)
+	return current, changed, nil
 }
 
-// checks for changes in the delegate tree structure, delegate count
-// or changes to any files
-func isLatest(local *RootTarget, fromNotary *RootTarget) bool {
-	// check to see if a delegate has been added or removed, or that
-	// the structure of the tree hasn't changed
-	if len(local.targetPrecedence) != len(fromNotary.targetPrecedence) {
-		return false
-	}
-	for i, targ := range fromNotary.targetPrecedence {
-		if targ.delegateRole != local.targetPrecedence[i].delegateRole {
-			return false
-		}
-	}
-	// check if targets were added
-	if len(fromNotary.paths) > len(local.paths) {
-		return false
-	}
+// Returns a list of any targets (paths) that have changed, or, are new.
+func getChangedPaths(local *RootTarget, fromNotary *RootTarget) []string {
+	var changed []string
 	for targetName, fim := range fromNotary.paths {
+		// check for new paths
 		lfim, ok := local.paths[targetName]
-
 		if !ok {
-			return false
+			changed = append(changed, targetName)
+			continue
 		}
+		// if paths exist in both local and notary versions of the repo,
+		// compare hashes to detect changes.
 		if !fim.equal(lfim) {
-			return false
+			changed = append(changed, targetName)
 		}
 	}
-	return true
+	return changed
 }
 
 func getKeys(r *Root, sigs []Signature) map[keyID]Key {
@@ -442,7 +454,14 @@ func getKeys(r *Root, sigs []Signature) map[keyID]Key {
 // metadata file found earlier in step 4.
 // In either case, the client MUST write the file to non-volatile storage as
 // FILENAME.EXT.
-func (rs *repoMan) downloadTarget(target string, fim *FileIntegrityMeta, destination io.Writer) error {
+func (rs *repoMan) downloadTarget(target string, destination io.Writer) error {
+	if rs.targets == nil {
+		return errors.New("no targets present, was Update called?")
+	}
+	fim, ok := rs.targets.paths[target]
+	if !ok {
+		return errors.Errorf("unknown target %q", target)
+	}
 	// we expect our mirrored distribution targets to be located
 	// at https://mirror.com/gun/targetname
 	mirrorURL, err := url.Parse(rs.settings.MirrorURL)
@@ -475,15 +494,19 @@ func (rs *repoMan) downloadTarget(target string, fim *FileIntegrityMeta, destina
 	return nil
 }
 
-func (rs *repoMan) getLocalTargets() FimMap {
-	files := make(chan FimMap)
+func (rs *repoMan) getLocalTargets() []string {
+	changes := make(chan []string)
 	rs.actionc <- func() {
 		if rs.targets != nil {
-			// clone creates new copies of all the maps so we don't get race conditions
-			files <- rs.targets.paths.clone()
+			if rs.changed == nil {
+				changes <- []string{}
+				return
+			}
+			var cloned []string
+			changes <- append(cloned, rs.changed...)
 		}
 	}
-	return <-files
+	return <-changes
 }
 
 func verifySignatures(role marshaller, keys map[keyID]Key, sigs []Signature, threshold int) error {
