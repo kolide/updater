@@ -7,6 +7,7 @@ import (
 	"path"
 	"time"
 
+	"github.com/WatchBeam/clock"
 	"github.com/pkg/errors"
 )
 
@@ -69,9 +70,9 @@ type repoMan struct {
 	snapshot  *Snapshot
 	targets   *RootTarget
 	client    *http.Client
-
-	actionc chan func()
-	quit    chan chan struct{}
+	klock     clock.Clock
+	actionc   chan func()
+	quit      chan chan struct{}
 }
 
 func (rs *repoMan) Stop() {
@@ -126,12 +127,13 @@ func (rs *repoMan) loop() {
 	}
 }
 
-func newRepoMan(repo persistentRepo, notary remoteRepo, settings *Settings, client *http.Client) *repoMan {
+func newRepoMan(repo persistentRepo, notary remoteRepo, settings *Settings, client *http.Client, k clock.Clock) *repoMan {
 	man := &repoMan{
 		settings: settings,
 		repo:     repo,
 		notary:   notary,
 		client:   client,
+		klock:    k,
 		actionc:  make(chan func()),
 		quit:     make(chan chan struct{}),
 	}
@@ -246,7 +248,7 @@ func (rs *repoMan) refreshTimestamp(root *Root) (*Timestamp, error) {
 	}
 	// 2.3. **Check for a freeze attack.** The latest known time should be lower
 	// than the expiration timestamp in this metadata file.
-	if time.Now().After(remote.Signed.Expires) {
+	if rs.klock.Now().After(remote.Signed.Expires) {
 		return nil, errFreezeAttack
 	}
 	return remote, nil
@@ -316,7 +318,7 @@ func (rs *repoMan) refreshSnapshot(root *Root, timestamp *Timestamp) (*Snapshot,
 	}
 	// 3.4. **Check for a freeze attack.** The latest known time should be lower
 	// than the expiration timestamp in this metadata file.
-	if time.Now().After(current.Signed.Expires) {
+	if rs.klock.Now().After(current.Signed.Expires) {
 		return nil, errFreezeAttack
 	}
 	return current, nil
@@ -370,6 +372,7 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, 
 		rootRole:        root,
 		snapshotRole:    snapshot,
 		localRootTarget: previous,
+		klock:           rs.klock,
 	}
 	targetFetcher, err := newNotaryTargetFetcher(settings)
 	if err != nil {
@@ -396,13 +399,13 @@ func isLatest(local *RootTarget, fromNotary *RootTarget) bool {
 			return false
 		}
 	}
-	// check if targets where added
+	// check if targets were added
 	if len(fromNotary.paths) > len(local.paths) {
 		return false
 	}
-
 	for targetName, fim := range fromNotary.paths {
 		lfim, ok := local.paths[targetName]
+
 		if !ok {
 			return false
 		}
@@ -469,7 +472,6 @@ func (rs *repoMan) downloadTarget(target string, fim *FileIntegrityMeta, destina
 	if err := fim.verify(io.TeeReader(stream, destination)); err != nil {
 		return errors.Wrap(err, "verifying current target download")
 	}
-
 	return nil
 }
 

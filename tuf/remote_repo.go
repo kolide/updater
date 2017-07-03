@@ -9,8 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"time"
 
+	"github.com/WatchBeam/clock"
 	"github.com/pkg/errors"
 )
 
@@ -22,6 +22,7 @@ type notaryTargetFetcherSettings struct {
 	rootRole        *Root
 	snapshotRole    *Snapshot
 	localRootTarget *RootTarget
+	klock           clock.Clock
 }
 
 type notaryTargetFetcher struct {
@@ -71,7 +72,7 @@ func (rdr *notaryTargetFetcher) fetch(delegate string) (*Targets, error) {
 		return nil, errTargetSeen
 	}
 	rdr.seen[delegate] = struct{}{}
-	path, err := url.Parse(fmt.Sprintf(tumAPIPattern, rdr.settings.gun, delegate))
+	path, err := url.Parse(fmt.Sprintf(tufAPIFormat, rdr.settings.gun, delegate))
 	if err != nil {
 		return nil, errors.Wrap(err, "bad url in remote target read")
 	}
@@ -142,7 +143,7 @@ func (rdr *notaryTargetFetcher) compareToExistingTarget(delegate string, target 
 	}
 	// 4.4. **Check for a freeze attack.** The latest known time should be lower
 	// than the expiration timestamp in this metadata file.
-	if time.Now().After(target.Signed.Expires) {
+	if rdr.settings.klock.Now().After(target.Signed.Expires) {
 		return errFreezeAttack
 	}
 	return nil
@@ -269,7 +270,7 @@ func (r *notaryRepo) buildRoleURL(roleName role) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	path, err := url.Parse(fmt.Sprintf(tumAPIPattern, r.gun, roleName))
+	path, err := url.Parse(fmt.Sprintf(tufAPIFormat, r.gun, roleName))
 	if err != nil {
 		return "", errors.Wrap(err, "building path for remote repo")
 	}

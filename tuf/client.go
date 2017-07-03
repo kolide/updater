@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/WatchBeam/clock"
 	"github.com/pkg/errors"
 )
 
@@ -25,9 +26,9 @@ type Client struct {
 	stagingPath         string
 	notificationHandler NotificationHandler
 	quit                chan chan struct{}
-
-	client          *http.Client
-	maxResponseSize int64
+	klock               clock.Clock
+	client              *http.Client
+	maxResponseSize     int64
 }
 
 const (
@@ -80,6 +81,12 @@ func WithHTTPClient(httpClient *http.Client) Option {
 	}
 }
 
+func withClock(mc clock.Clock) Option {
+	return func(c *Client) {
+		c.klock = mc
+	}
+}
+
 // NewClient creates a TUF Client which can securely download packages from a remote mirror.
 // The Client downloads payloads(also called targets) from a remote mirror, validating
 // each payload according to the TUF spec. The Client uses a Docker Notary service to
@@ -97,6 +104,7 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 		checkFrequency:  defaultCheckFrequency,
 		backupFileAge:   defaultBackupAge,
 		quit:            make(chan chan struct{}),
+		klock:           &clock.DefaultClock{},
 	}
 	for _, opt := range opts {
 		opt(&client)
@@ -113,7 +121,7 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 	if err != nil {
 		return nil, errors.New("creating local tuf role repo")
 	}
-	client.manager = newRepoMan(localRepo, notary, settings, notary.client)
+	client.manager = newRepoMan(localRepo, notary, settings, notary.client, client.klock)
 	if client.watchedTarget != "" {
 		go client.monitorTarget()
 	}
@@ -133,7 +141,6 @@ func (c *Client) Update() (files FimMap, latest bool, err error) {
 	if err != nil {
 		return nil, latest, errors.Wrap(err, "refreshing state")
 	}
-
 	ss := saveSettings{
 		tufRepositoryRootDir: c.manager.settings.LocalRepoPath,
 		backupAge:            c.backupFileAge,
@@ -146,7 +153,6 @@ func (c *Client) Update() (files FimMap, latest bool, err error) {
 	if err := saveTufRepository(&ss); err != nil {
 		return nil, latest, errors.Wrap(err, "unable to save tuf repo state")
 	}
-
 	files = c.manager.getLocalTargets()
 	return files, latest, nil
 }
@@ -167,7 +173,7 @@ func (c *Client) Download(targetName string, destination io.Writer) error {
 
 func (c *Client) monitorTarget() {
 	var hash string
-	ticker := time.NewTicker(c.checkFrequency).C
+	ticker := c.klock.NewTicker(c.checkFrequency)
 	for {
 		files, _, err := c.Update()
 		if err != nil {
@@ -189,9 +195,8 @@ func (c *Client) monitorTarget() {
 		h := metaHash()
 		c.downloadIfNew(hash, h)
 		hash = h
-
 		select {
-		case <-ticker:
+		case <-ticker.Chan():
 		case quit := <-c.quit:
 			close(quit)
 			return

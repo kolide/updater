@@ -2,6 +2,12 @@
 
 
 [[projects]]
+  branch = "master"
+  name = "github.com/WatchBeam/clock"
+  packages = ["."]
+  revision = "dc1b5747788288033b8ca7c7a2e831eb0d1f53de"
+
+[[projects]]
   name = "github.com/davecgh/go-spew"
   packages = ["spew"]
   revision = "346938d642f2ec3594ed81d874461961cd0faa76"
@@ -52,6 +58,6 @@
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "0aefaee4fd9f81231238c189db2b4f2821b07ddcba3af46bdc26195929a29aad"
+  inputs-digest = "92343a785c2fcda1036248efb00707c53da6715ccc2681071686869f8c190787"
   solver-name = "gps-cdcl"
   solver-version = 1

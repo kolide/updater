@@ -13,7 +13,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"testing"
+	"time"
 
+	"github.com/WatchBeam/clock"
 	"github.com/kolide/updater/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -179,8 +181,9 @@ func TestClientNoUpdates(t *testing.T) {
 	defer notary.Close()
 	defer mirror.Close()
 	settings := testSettings(localRepoPath, notary, mirror)
-
-	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()))
+	testTime, _ := time.Parse(time.UnixDate, "Sat Jul 1 18:00:00 CST 2017")
+	mockClock := clock.NewMockClock(testTime)
+	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()), withClock(mockClock))
 	require.Nil(t, err)
 
 	_, latest, err := client.Update()
@@ -209,6 +212,8 @@ func testHTTPClient() *http.Client {
 }
 
 func TestClientWithUpdates(t *testing.T) {
+	testTime, _ := time.Parse(time.UnixDate, "Sat Jul 1 18:00:00 CST 2017")
+
 	localRepoPath, stagingPath := setupTufLocal(0, t)
 	defer os.RemoveAll(localRepoPath)
 	defer os.RemoveAll(stagingPath)
@@ -218,7 +223,7 @@ func TestClientWithUpdates(t *testing.T) {
 
 	settings := testSettings(localRepoPath, notary, mirror)
 
-	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()))
+	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()), withClock(clock.NewMockClock(testTime)))
 	require.Nil(t, err)
 
 	_, latest, err := client.Update()
@@ -241,6 +246,7 @@ func TestClientWithUpdates(t *testing.T) {
 }
 
 func TestWithRootKeyRotation(t *testing.T) {
+	testTime, _ := time.Parse(time.UnixDate, "Sat Jul 1 18:00:00 CST 2017")
 	localRepoPath, stagingPath := setupTufLocal(1, t)
 	defer os.RemoveAll(localRepoPath)
 	defer os.RemoveAll(stagingPath)
@@ -249,7 +255,7 @@ func TestWithRootKeyRotation(t *testing.T) {
 	defer mirror.Close()
 	settings := testSettings(localRepoPath, notary, mirror)
 
-	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()))
+	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()), withClock(clock.NewMockClock(testTime)))
 	require.Nil(t, err)
 
 	_, latest, err := client.Update()
@@ -272,6 +278,7 @@ func TestWithRootKeyRotation(t *testing.T) {
 }
 
 func TestWithTimestampKeyRotation(t *testing.T) {
+	testTime, _ := time.Parse(time.UnixDate, "Sat Jul 1 18:00:00 CST 2017")
 	localRepoPath, stagingPath := setupTufLocal(3, t)
 	defer os.RemoveAll(localRepoPath)
 	defer os.RemoveAll(stagingPath)
@@ -280,7 +287,7 @@ func TestWithTimestampKeyRotation(t *testing.T) {
 	defer mirror.Close()
 	settings := testSettings(localRepoPath, notary, mirror)
 
-	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()))
+	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()), withClock(clock.NewMockClock(testTime)))
 	require.Nil(t, err)
 
 	_, latest, err := client.Update()

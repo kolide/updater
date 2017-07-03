@@ -174,6 +174,7 @@ func (rt *RootTarget) append(role string, targ *Targets) {
 	// ignore it because a higher precedence delegate has already
 	// added it
 	for targetName, fim := range targ.Signed.Targets {
+
 		if _, ok := rt.paths[targetName]; !ok {
 			rt.paths[targetName] = fim
 		}

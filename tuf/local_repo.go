@@ -20,8 +20,7 @@ func (rdr *localTargetFetcher) fetch(role string) (*Targets, error) {
 	}
 	defer f.Close()
 	var result Targets
-	err = json.NewDecoder(f).Decode(&result)
-	if err != nil {
+	if err = json.NewDecoder(f).Decode(&result); err != nil {
 		return nil, errors.Wrap(err, "decoding json reading local target")
 	}
 	return &result, nil

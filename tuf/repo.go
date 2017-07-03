@@ -10,10 +10,10 @@ import (
 )
 
 const (
-	tufURLScheme  = "https"
-	tumAPIPattern = `/v2/%s/_trust/tuf/%s.json`
-	healthzPath   = `/_notary_server/health`
-	roleRegex     = `^root$|^[1-9]*[0-9]+\.root$|^snapshot$|^timestamp$|^targets$`
+	tufURLScheme = "https"
+	tufAPIFormat = `/v2/%s/_trust/tuf/%s.json`
+	healthzPath  = `/_notary_server/health`
+	roleRegex    = `^root$|^[1-9]*[0-9]+\.root$|^snapshot$|^timestamp$|^targets$`
 	// http headers
 	cacheControl       = "Cache-Control"
 	cachePolicyNoStore = "no-store"
