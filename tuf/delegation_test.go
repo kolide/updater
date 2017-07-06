@@ -224,6 +224,15 @@ func autoupdateDetectedChange(t *testing.T, settings *Settings, c *http.Client, 
 	assert.Nil(t, err)
 }
 
+func wontCrashOnNilAutoupdate(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
+	_, err := NewClient(
+		settings, WithHTTPClient(c),
+		withClock(k),
+		WithAutoUpdate("edge/target", stageDir, nil),
+	)
+	assert.NotNil(t, err)
+}
+
 const (
 	assetRoot  = "test/delegation"
 	mirrorRoot = "test/mirror"
@@ -312,6 +321,7 @@ func TestEndToEnd(t *testing.T) {
 		{"existing path changed", 1, 2, existingPathChanged},
 		{"autoupdate with change", 1, 2, autoupdateDetectedChange},
 		{"lower precedent change", 2, 3, nonprecedentPathChange},
+		{"nil autoupdate func", 1, 2, wontCrashOnNilAutoupdate},
 	}
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {

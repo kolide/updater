@@ -123,4 +123,14 @@ func TestHashTesters(t *testing.T) {
 
 	tf(testSHA256(sha256Hash), testSHA512(sha512Hash))
 
+	for algo, expected := range ssMeta.Hashes {
+		t.Run(string(algo), func(t *testing.T) {
+			hi, err := newHashInfo(algo, []byte(expected))
+			require.Nil(t, err)
+			require.NotNil(t, hi)
+			assert.Implements(t, (*tester)(nil), hi)
+			assert.Nil(t, hi.test(snapshot))
+		})
+	}
+
 }

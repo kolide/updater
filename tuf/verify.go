@@ -1,10 +1,10 @@
 package tuf
 
 import (
-	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/pem"
@@ -97,8 +97,7 @@ func (c *hashTester) test(b []byte) error {
 	if err != nil {
 		return errors.Wrap(err, "decoding base64 file integrity check")
 	}
-	match := bytes.Equal(c.hasher(b), hash)
-	if !match {
+	if subtle.ConstantTimeCompare(c.hasher(b), hash) != 1 {
 		return errHashMismatch
 	}
 	return nil

@@ -33,7 +33,7 @@ type Client struct {
 const (
 	defaultCheckFrequency  = 1 * time.Hour
 	defaultBackupAge       = 24 * time.Hour
-	defaultMaxResponseSize = 5 * 1024 * 1024 // 5 Megabytes
+	defaultMaxResponseSize = int64(5 * 1024 * 1024) // 5 Megabytes
 )
 
 // Option allows customization of the Client.
@@ -115,6 +115,9 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 	}
 	client.manager = newRepoMan(localRepo, notary, settings, notary.client, client.backupFileAge, client.clock)
 	if client.watchedTarget != "" {
+		if client.notificationHandler == nil {
+			return nil, errors.New("notification handler required for autoupdate")
+		}
 		go client.monitorTarget()
 	}
 	return &client, nil
