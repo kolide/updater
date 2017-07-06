@@ -15,10 +15,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/WatchBeam/clock"
 	"github.com/kolide/updater/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func withClock(mc clock.Clock) Option {
+	return func(c *Client) {
+		c.clock = mc
+	}
+}
 
 func TestURLValidation(t *testing.T) {
 	settings := &Settings{
@@ -169,85 +176,6 @@ func setupTufRemote(version int, notfoundVersion string, t *testing.T) (*httptes
 	return notary, mirror
 }
 
-func TestBackupAndRecover(t *testing.T) {
-	localRepoPath, stagingPath := setupTufLocal(0, t)
-	defer os.RemoveAll(localRepoPath)
-	defer os.RemoveAll(stagingPath)
-
-	rm := repoMan{
-		settings: &Settings{
-			LocalRepoPath: localRepoPath,
-		},
-	}
-	tag := time.Now().Format(time.Now().Format(filetimeFormat))
-	err := rm.backupRoles(tag)
-	require.Nil(t, err)
-
-	// remove files and make sure that they get restored
-	backupFiles := []string{
-		filepath.Join(localRepoPath, fmt.Sprintf("root.%s.json", tag)),
-		filepath.Join(localRepoPath, fmt.Sprintf("timestamp.%s.json", tag)),
-		filepath.Join(localRepoPath, fmt.Sprintf("snapshot.%s.json", tag)),
-		filepath.Join(localRepoPath, fmt.Sprintf("targets.%s.json", tag)),
-	}
-	files := []string{
-		filepath.Join(localRepoPath, "root.json"),
-		filepath.Join(localRepoPath, "timestamp.json"),
-		filepath.Join(localRepoPath, "snapshot.json"),
-		filepath.Join(localRepoPath, "targets.json"),
-	}
-	// backup file should exist, regular file should not
-	for i := range files {
-		_, err = os.Stat(files[i])
-		assert.True(t, os.IsNotExist(err))
-		_, err = os.Stat(backupFiles[i])
-		assert.Nil(t, err)
-	}
-
-	err = rm.restoreRoles(tag)
-	assert.Nil(t, err)
-	// regular file should exist, backup should not
-	for i := range files {
-		_, err = os.Stat(files[i])
-		assert.Nil(t, err)
-		_, err = os.Stat(backupFiles[i])
-		assert.True(t, os.IsNotExist(err))
-	}
-
-	// do a save that we know will blow up
-	err = rm.save(tag)
-	require.NotNil(t, err)
-
-	// should have original files, no backup files
-	for i := range files {
-		_, err = os.Stat(files[i])
-		assert.Nil(t, err)
-		_, err = os.Stat(backupFiles[i])
-		assert.True(t, os.IsNotExist(err))
-	}
-
-	// now do a save that should work
-	repo, err := newLocalRepo(localRepoPath)
-	require.Nil(t, err)
-	rm.root, err = repo.root()
-	require.Nil(t, err)
-	rm.timestamp, err = repo.timestamp()
-	require.Nil(t, err)
-	rm.targets, err = repo.targets()
-	require.Nil(t, err)
-	rm.snapshot, err = repo.snapshot()
-	require.Nil(t, err)
-
-	err = rm.save(tag)
-	require.Nil(t, err)
-
-	// should have original files
-	for i := range files {
-		_, err = os.Stat(files[i])
-		assert.Nil(t, err)
-	}
-}
-
 // these tests work on versioned role files and targets that we create interactively
 // using notary and then save them in bin data so we can mimic key rotations,
 // updating distributables etc.
@@ -259,13 +187,15 @@ func TestClientNoUpdates(t *testing.T) {
 	defer notary.Close()
 	defer mirror.Close()
 	settings := testSettings(localRepoPath, notary, mirror)
-
-	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()))
+	testTime, _ := time.Parse(time.UnixDate, "Sat Jul 1 18:00:00 CST 2017")
+	mockClock := clock.NewMockClock(testTime)
+	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()), withClock(mockClock))
 	require.Nil(t, err)
-
-	_, latest, err := client.Update()
+	fims, latest, err := client.Update()
 	require.Nil(t, err)
 	require.True(t, latest)
+	assert.Len(t, fims, 2)
+
 }
 
 func testSettings(localRepo string, notary, mirror *httptest.Server) *Settings {
@@ -289,6 +219,7 @@ func testHTTPClient() *http.Client {
 }
 
 func TestClientWithUpdates(t *testing.T) {
+	testTime, _ := time.Parse(time.UnixDate, "Sat Jul 1 18:00:00 CST 2017")
 	localRepoPath, stagingPath := setupTufLocal(0, t)
 	defer os.RemoveAll(localRepoPath)
 	defer os.RemoveAll(stagingPath)
@@ -298,7 +229,7 @@ func TestClientWithUpdates(t *testing.T) {
 
 	settings := testSettings(localRepoPath, notary, mirror)
 
-	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()))
+	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()), withClock(clock.NewMockClock(testTime)))
 	require.Nil(t, err)
 
 	_, latest, err := client.Update()
@@ -321,6 +252,7 @@ func TestClientWithUpdates(t *testing.T) {
 }
 
 func TestWithRootKeyRotation(t *testing.T) {
+	testTime, _ := time.Parse(time.UnixDate, "Sat Jul 1 18:00:00 CST 2017")
 	localRepoPath, stagingPath := setupTufLocal(1, t)
 	defer os.RemoveAll(localRepoPath)
 	defer os.RemoveAll(stagingPath)
@@ -329,7 +261,7 @@ func TestWithRootKeyRotation(t *testing.T) {
 	defer mirror.Close()
 	settings := testSettings(localRepoPath, notary, mirror)
 
-	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()))
+	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()), withClock(clock.NewMockClock(testTime)))
 	require.Nil(t, err)
 
 	_, latest, err := client.Update()
@@ -352,6 +284,7 @@ func TestWithRootKeyRotation(t *testing.T) {
 }
 
 func TestWithTimestampKeyRotation(t *testing.T) {
+	testTime, _ := time.Parse(time.UnixDate, "Sat Jul 1 18:00:00 CST 2017")
 	localRepoPath, stagingPath := setupTufLocal(3, t)
 	defer os.RemoveAll(localRepoPath)
 	defer os.RemoveAll(stagingPath)
@@ -360,7 +293,7 @@ func TestWithTimestampKeyRotation(t *testing.T) {
 	defer mirror.Close()
 	settings := testSettings(localRepoPath, notary, mirror)
 
-	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()))
+	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()), withClock(clock.NewMockClock(testTime)))
 	require.Nil(t, err)
 
 	_, latest, err := client.Update()

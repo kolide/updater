@@ -202,36 +202,6 @@ func TestGetRoot(t *testing.T) {
 	assert.Equal(t, "2027-06-10T13:25:45.170347322-05:00", root.Signed.Expires.Format(time.RFC3339Nano))
 }
 
-func TestGetTargets(t *testing.T) {
-	svr := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
-		buff, err := test.Asset("test/data/targets.json")
-		require.Nil(t, err)
-		w.Write(buff)
-	}))
-	defer svr.Close()
-
-	baseURL, _ := url.Parse(svr.URL)
-	r := notaryRepo{
-		gun:             "kolide/agent/darwin",
-		url:             baseURL,
-		maxResponseSize: defaultMaxResponseSize,
-		client: &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		},
-	}
-
-	targets, err := r.targets()
-	require.Nil(t, err)
-	require.NotNil(t, targets)
-
-	assert.Equal(t, "2020-06-11T16:02:16.180597846-05:00", targets.Signed.Expires.Format(time.RFC3339Nano))
-}
-
 func TestGetTimestamp(t *testing.T) {
 	svr := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		buff, err := test.Asset("test/data/timestamp.json")

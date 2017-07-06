@@ -2,6 +2,12 @@
 
 
 [[projects]]
+  branch = "master"
+  name = "github.com/WatchBeam/clock"
+  packages = ["."]
+  revision = "dc1b5747788288033b8ca7c7a2e831eb0d1f53de"
+
+[[projects]]
   name = "github.com/davecgh/go-spew"
   packages = ["spew"]
   revision = "346938d642f2ec3594ed81d874461961cd0faa76"
@@ -12,6 +18,18 @@
   packages = ["canonical/json"]
   revision = "62e5ec7cf43f795986ec658df7cb317255772993"
   version = "v1.5.1-1"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/kr/pretty"
+  packages = ["."]
+  revision = "cfb55aafdaf3ec08f0db22699ab822c50091b1c4"
+
+[[projects]]
+  branch = "master"
+  name = "github.com/kr/text"
+  packages = ["."]
+  revision = "7cafcd837844e784b526369c9bce262804aebc60"
 
 [[projects]]
   name = "github.com/pkg/errors"
@@ -31,9 +49,15 @@
   revision = "69483b4bd14f5845b5a1e55bca19e954e827f1d0"
   version = "v1.1.4"
 
+[[projects]]
+  name = "github.com/y0ssar1an/q"
+  packages = ["."]
+  revision = "392ac3089fcf8c70ebbe85f4c29778b7ebe27a9f"
+  version = "v1.0.2"
+
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "a7f08f04ed7924d1d62cdf38d70ccfbd479943b694d4d2fb446c6f2f2e42412f"
+  inputs-digest = "92343a785c2fcda1036248efb00707c53da6715ccc2681071686869f8c190787"
   solver-name = "gps-cdcl"
   solver-version = 1

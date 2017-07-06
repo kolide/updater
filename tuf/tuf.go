@@ -1,28 +1,28 @@
 package tuf
 
 import (
-	"bytes"
-	"fmt"
 	"io"
 	"net/http"
 	"net/url"
-	"os"
 	"path"
-	"path/filepath"
-	"reflect"
 	"time"
 
-	cjson "github.com/docker/go/canonical/json"
+	"github.com/WatchBeam/clock"
 	"github.com/pkg/errors"
 )
 
 var (
-	errRollbackAttack  = errors.New("role version is greater than previous role version")
-	errFreezeAttack    = errors.New("current time is after role expiration timestamp")
-	errUnsupportedHash = errors.New("unsupported hash alogorithm")
-	errHashIncorrect   = errors.New("file hash does not match")
-	errLengthIncorrect = errors.New("file length incorrect")
-	errNoSuchTarget    = errors.New("no such target")
+	errRollbackAttack         = errors.New("role version is greater than previous role version")
+	errFreezeAttack           = errors.New("current time is after role expiration timestamp")
+	errUnsupportedHash        = errors.New("unsupported hash alogorithm")
+	errHashIncorrect          = errors.New("file hash does not match")
+	errLengthIncorrect        = errors.New("file length incorrect")
+	errNoSuchTarget           = errors.New("no such target")
+	errNotFound               = errors.New("resource does not exist")
+	errMaxDelegationsExceeded = errors.New("too many delegations")
+	errTargetSeen             = errors.New("target already seen in tree")
+	errFailedIntegrityCheck   = errors.New("target file fails integrity check")
+	errTooManyDelegates       = errors.Errorf("number of delegates exceeds max %d", maxDelegationCount)
 )
 
 // Settings various parameters needed to find updates
@@ -61,11 +61,6 @@ func (s *Settings) verify() error {
 	return nil
 }
 
-// getTag a timestamp based moniker
-func getTag() string {
-	return time.Now().Format(time.Now().Format(filetimeFormat))
-}
-
 type repoMan struct {
 	settings  *Settings
 	repo      persistentRepo
@@ -73,11 +68,12 @@ type repoMan struct {
 	root      *Root
 	timestamp *Timestamp
 	snapshot  *Snapshot
-	targets   *Targets
+	targets   *RootTarget
 	client    *http.Client
-
-	actionc chan func()
-	quit    chan chan struct{}
+	clock     clock.Clock
+	actionc   chan func()
+	quit      chan chan struct{}
+	backupAge time.Duration
 }
 
 func (rs *repoMan) Stop() {
@@ -86,38 +82,63 @@ func (rs *repoMan) Stop() {
 	<-quit
 }
 
+func (rs *repoMan) save() error {
+
+	ss := saveSettings{
+		tufRepositoryRootDir: rs.settings.LocalRepoPath,
+		backupAge:            rs.backupAge,
+		rootRole:             rs.root,
+		timestampRole:        rs.timestamp,
+		snapshotRole:         rs.snapshot,
+		targetsRole:          rs.targets,
+	}
+	if err := saveTufRepository(&ss); err != nil {
+		return errors.Wrap(err, "failed to save tuf repo")
+	}
+	return nil
+}
+
+type refreshResponse struct {
+	latest bool
+	err    error
+}
+
 func (rs *repoMan) refresh() (bool, error) {
-	errc := make(chan error)
-	var isLatest bool
+	errc := make(chan refreshResponse)
+
 	rs.actionc <- func() {
 		root, err := rs.refreshRoot()
 		if err != nil {
-			errc <- errors.Wrap(err, "refreshing root")
+			errc <- refreshResponse{false, errors.Wrap(err, "refreshing root")}
 			return
 		}
 		rs.root = root
 		timestamp, err := rs.refreshTimestamp(root)
 		if err != nil {
-			errc <- errors.Wrap(err, "refreshing timestamp")
+			errc <- refreshResponse{false, errors.Wrap(err, "refreshing timestamp")}
 			return
 		}
 		rs.timestamp = timestamp
 		snapshot, err := rs.refreshSnapshot(root, timestamp)
 		if err != nil {
-			errc <- errors.Wrap(err, "refreshing snapshot")
+			errc <- refreshResponse{false, errors.Wrap(err, "refreshing snapshot")}
 			return
 		}
 		rs.snapshot = snapshot
-		targets, latest, err := rs.refreshTargets(root, snapshot)
+		targets, changed, err := rs.refreshTargets(root, snapshot)
 		if err != nil {
-			errc <- errors.Wrap(err, "refreshing targets")
+			errc <- refreshResponse{false, errors.Wrap(err, "refreshing targets")}
 			return
 		}
-		isLatest = latest
 		rs.targets = targets
-		errc <- nil
+		if err := rs.save(); err != nil {
+			errc <- refreshResponse{false, errors.Wrap(err, "saving new tuf repo")}
+			return
+		}
+		errc <- refreshResponse{len(changed) == 0, nil}
 	}
-	return isLatest, <-errc
+	rr := <-errc
+	return rr.latest, rr.err
 }
 
 func (rs *repoMan) loop() {
@@ -132,131 +153,19 @@ func (rs *repoMan) loop() {
 	}
 }
 
-func newRepoMan(repo persistentRepo, notary remoteRepo, settings *Settings, client *http.Client) *repoMan {
+func newRepoMan(repo persistentRepo, notary remoteRepo, settings *Settings, client *http.Client, backupAge time.Duration, k clock.Clock) *repoMan {
 	man := &repoMan{
-		settings: settings,
-		repo:     repo,
-		notary:   notary,
-		client:   client,
-		actionc:  make(chan func()),
-		quit:     make(chan chan struct{}),
+		settings:  settings,
+		repo:      repo,
+		notary:    notary,
+		client:    client,
+		clock:     k,
+		backupAge: backupAge,
+		actionc:   make(chan func()),
+		quit:      make(chan chan struct{}),
 	}
 	go man.loop()
 	return man
-}
-
-func (rs *repoMan) save(backupTag string) (err error) {
-	defer func() {
-		if err != nil {
-			rs.restoreRoles(backupTag)
-			return
-		}
-		// clean up backup files
-		err = rs.deleteBackupRoles(backupTag)
-	}()
-	var buff []byte
-	roles := []struct {
-		cached interface{}
-		name   role
-	}{
-		{rs.root, roleRoot},
-		{rs.timestamp, roleTimestamp},
-		{rs.snapshot, roleSnapshot},
-		{rs.targets, roleTargets},
-	}
-	err = rs.backupRoles(backupTag)
-	if err != nil {
-		return errors.Wrap(err, "local repo backup failed")
-	}
-	for _, r := range roles {
-		if reflect.ValueOf(r.cached).IsNil() {
-			err = errors.Errorf("can't save %q, cached role is nil", r)
-			break
-		}
-		buff, err = cjson.MarshalCanonical(r.cached)
-		if err != nil {
-			err = errors.Wrap(err, "marshalling role failed")
-			break
-		}
-		err = rs.saveRole(r.name, buff)
-		if err != nil {
-			err = errors.Wrap(err, "saving role")
-			break
-		}
-	}
-	return err
-}
-
-func (rs *repoMan) backupRoles(tag string) error {
-	roles := []role{roleRoot, roleTargets, roleSnapshot, roleTimestamp}
-	for _, r := range roles {
-		source := filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.json", r))
-		destination := filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.%s.json", r, tag))
-		err := os.Rename(source, destination)
-		if err != nil {
-			return errors.Wrap(err, "backing up role")
-		}
-	}
-	return nil
-}
-
-func (rs *repoMan) restoreRoles(tag string) error {
-	roles := []role{roleRoot, roleTargets, roleSnapshot, roleTimestamp}
-	for _, r := range roles {
-		destination := filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.json", r))
-		source := filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.%s.json", r, tag))
-		_, err := os.Stat(source)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return errors.Wrap(err, "problem restoring roles")
-		}
-		err = os.Rename(source, destination)
-		if err != nil {
-			return errors.Wrap(err, "moving backup role")
-		}
-	}
-	return nil
-}
-
-// If local TUF repo was successfully updated we want to get rid of backup files
-// that they don't take up drive space.
-func (rs *repoMan) deleteBackupRoles(tag string) error {
-	roles := []role{roleRoot, roleTargets, roleSnapshot, roleTimestamp}
-	for _, r := range roles {
-		backupFilePath := filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.%s.json", r, tag))
-		fs, err := os.Stat(backupFilePath)
-		if os.IsNotExist(err) {
-			continue
-		}
-		if err != nil {
-			return errors.Wrap(err, "checking existance of role backup file")
-		}
-		if fs.Mode().IsRegular() {
-			err = os.Remove(backupFilePath)
-			if err != nil {
-				return errors.Wrap(err, "removing role backup file")
-			}
-		}
-	}
-	return nil
-}
-
-func (rs *repoMan) saveRole(r role, js []byte) error {
-	fs, err := os.OpenFile(filepath.Join(rs.settings.LocalRepoPath, fmt.Sprintf("%s.json", r)), os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return errors.Wrap(err, "saving role file")
-	}
-	defer fs.Close()
-	written, err := io.Copy(fs, bytes.NewBuffer(js))
-	if err != nil {
-		return errors.Wrap(err, "writing role to open file")
-	}
-	if written != int64(len(js)) {
-		return errors.New("not all of the role was written to file")
-	}
-	return nil
 }
 
 // Root role processing TUF spec section 5.1.0 through 5.1.1.9
@@ -274,7 +183,7 @@ func (rs *repoMan) refreshRoot() (*Root, error) {
 	// 	0.2. Note that the expiration of the previous root metadata file does not
 	// matter, because we will attempt to update it in the next step.
 	keymap := keymapForSignatures(root)
-	err = rs.verifySignatures(root.Signed, keymap, root.Signatures, root.Signed.Roles[roleRoot].Threshold)
+	err = verifySignatures(root.Signed, keymap, root.Signatures, root.Signed.Roles[roleRoot].Threshold)
 	if err != nil {
 		return nil, errors.Wrap(err, "validating existing root")
 	}
@@ -305,12 +214,12 @@ func (rs *repoMan) refreshRoot() (*Root, error) {
 		// metadata file (version N), and (2) a threshold of keys specified in the
 		// current root metadata file (version N+1).
 		keymap := keymapForSignatures(root)
-		err = rs.verifySignatures(nextRoot.Signed, keymap, nextRoot.Signatures, root.Signed.Roles[roleRoot].Threshold)
+		err = verifySignatures(nextRoot.Signed, keymap, nextRoot.Signatures, root.Signed.Roles[roleRoot].Threshold)
 		if err != nil {
 			return nil, errors.Wrap(err, " previous root signature verification failed")
 		}
 		keymap = keymapForSignatures(nextRoot)
-		err = rs.verifySignatures(nextRoot.Signed, keymap, nextRoot.Signatures, nextRoot.Signed.Roles[roleRoot].Threshold)
+		err = verifySignatures(nextRoot.Signed, keymap, nextRoot.Signatures, nextRoot.Signed.Roles[roleRoot].Threshold)
 		if err != nil {
 			return nil, errors.Wrap(err, "root signature verification failed")
 		}
@@ -348,9 +257,9 @@ func (rs *repoMan) refreshTimestamp(root *Root) (*Timestamp, error) {
 	}
 	// 2.1. **Check signatures.** The timestamp metadata file must have been
 	// signed by a threshold of keys specified in the root metadata file.
-	keys := rs.getKeys(root, remote.Signatures)
+	keys := getKeys(root, remote.Signatures)
 	threshold := root.Signed.Roles[roleTimestamp].Threshold
-	err = rs.verifySignatures(remote.Signed, keys, remote.Signatures, threshold)
+	err = verifySignatures(remote.Signed, keys, remote.Signatures, threshold)
 	if err != nil {
 		return nil, errors.Wrap(err, "signature validation failed for timestamp")
 	}
@@ -366,7 +275,7 @@ func (rs *repoMan) refreshTimestamp(root *Root) (*Timestamp, error) {
 	}
 	// 2.3. **Check for a freeze attack.** The latest known time should be lower
 	// than the expiration timestamp in this metadata file.
-	if time.Now().After(remote.Signed.Expires) {
+	if rs.clock.Now().After(remote.Signed.Expires) {
 		return nil, errFreezeAttack
 	}
 	return remote, nil
@@ -407,9 +316,9 @@ func (rs *repoMan) refreshSnapshot(root *Root, timestamp *Timestamp) (*Snapshot,
 	}
 	// 3.2. **Check signatures.** The snapshot metadata file MUST have been signed
 	// by a threshold of keys specified in the previous root metadata file.
-	keys := rs.getKeys(root, current.Signatures)
+	keys := getKeys(root, current.Signatures)
 	threshold := root.Signed.Roles[roleSnapshot].Threshold
-	err = rs.verifySignatures(current.Signed, keys, current.Signatures, threshold)
+	err = verifySignatures(current.Signed, keys, current.Signatures, threshold)
 	if err != nil {
 		return nil, errors.Wrap(err, "signature validation failed for snapshot")
 	}
@@ -436,14 +345,15 @@ func (rs *repoMan) refreshSnapshot(root *Root, timestamp *Timestamp) (*Snapshot,
 	}
 	// 3.4. **Check for a freeze attack.** The latest known time should be lower
 	// than the expiration timestamp in this metadata file.
-	if time.Now().After(current.Signed.Expires) {
+	if rs.clock.Now().After(current.Signed.Expires) {
 		return nil, errFreezeAttack
 	}
 	return current, nil
 }
 
-// Targets processing section 5.4 through 5.5.2 in the TUF spec
-func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, bool, error) {
+// Targets processing section 5.4 through 5.5.2 in the TUF spec. It returns
+// the latest targets and a list of any paths that have changed
+func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, []string, error) {
 	// 4. **Download and check the top-level targets metadata file**, up to either
 	// the number of bytes specified in the snapshot metadata file, or some
 	// Z number of bytes. The value for Z is set by the authors of the application
@@ -460,10 +370,9 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, boo
 	// number of this metadata file MUST match the snapshot metadata. This is
 	// done, in part, to prevent a mix-and-match attack by man-in-the-middle
 	// attackers.
-	latest := true
 	fim, ok := snapshot.Signed.Meta[roleTargets]
 	if !ok {
-		return nil, latest, errors.New("missing target metadata in snapshot")
+		return nil, nil, errors.New("missing target metadata in snapshot")
 	}
 	var opts []func() interface{}
 	opts = append(opts, expectedSize(fim.Length))
@@ -475,41 +384,55 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*Targets, boo
 	if ok {
 		opts = append(opts, testSHA512(hash))
 	}
-	current, err := rs.notary.targets(opts...)
+	previous, err := rs.repo.targets(&localTargetFetcher{rs.repo.baseDir()})
 	if err != nil {
-		return nil, latest, errors.Wrap(err, "retrieving timestamp from notary")
+		return nil, nil, errors.Wrap(err, "fetching local targets")
 	}
-	// 4.2. **Check for an arbitrary software attack.** This metadata file MUST
-	// have been signed by a threshold of keys specified in the latest root
-	// metadata file.
-	keys := rs.getKeys(root, current.Signatures)
-	threshold := root.Signed.Roles[roleTargets].Threshold
-	err = rs.verifySignatures(current.Signed, keys, current.Signatures, threshold)
+	// the fetcher we are creating will be called by targetTreeBuilder each time it needs to
+	// download a child target while doing a preorder depth first traversal.
+	// TUF validations occur each time a target is read. See targetFetcher.
+	settings := &notaryTargetFetcherSettings{
+		gun:             rs.settings.GUN,
+		url:             rs.settings.NotaryURL,
+		maxResponseSize: defaultMaxResponseSize,
+		client:          rs.client,
+		rootRole:        root,
+		snapshotRole:    snapshot,
+		localRootTarget: previous,
+		clock:           rs.clock,
+	}
+	targetFetcher, err := newNotaryTargetFetcher(settings)
 	if err != nil {
-		return nil, latest, errors.Wrap(err, "signature verification for targets failed")
+		return nil, nil, errors.Wrap(err, "notary reader creation")
 	}
-	previous, err := rs.repo.targets()
+	current, err := rs.notary.targets(targetFetcher, opts...)
 	if err != nil {
-		return nil, latest, errors.Wrap(err, "fetching local targets")
+		return nil, nil, errors.Wrap(err, "retrieving timestamp from notary")
 	}
-	// 4.3. **Check for a rollback attack.** The version number of the previous
-	// targets metadata file, if any, MUST be less than or equal to the version
-	// number of this targets metadata file.
-	if previous.Signed.Version > current.Signed.Version {
-		return nil, latest, errRollbackAttack
-	}
-	// 4.4. **Check for a freeze attack.** The latest known time should be lower
-	// than the expiration timestamp in this metadata file.
-	if time.Now().After(current.Signed.Expires) {
-		return nil, latest, errFreezeAttack
-	}
-	if current.Signed.Version > previous.Signed.Version {
-		latest = false
-	}
-	return current, latest, nil
+	changed := getChangedPaths(previous, current)
+	return current, changed, nil
 }
 
-func (rs *repoMan) getKeys(r *Root, sigs []Signature) map[keyID]Key {
+// Returns a list of any targets (paths) that have changed, or, are new.
+func getChangedPaths(local *RootTarget, fromNotary *RootTarget) []string {
+	var changed []string
+	for targetName, fim := range fromNotary.paths {
+		// check for new paths
+		lfim, ok := local.paths[targetName]
+		if !ok {
+			changed = append(changed, targetName)
+			continue
+		}
+		// if paths exist in both local and notary versions of the repo,
+		// compare hashes to detect changes.
+		if !fim.Equal(lfim) {
+			changed = append(changed, targetName)
+		}
+	}
+	return changed
+}
+
+func getKeys(r *Root, sigs []Signature) map[keyID]Key {
 	result := make(map[keyID]Key)
 	for _, sig := range sigs {
 		k, ok := r.keys()[sig.KeyID]
@@ -535,7 +458,14 @@ func (rs *repoMan) getKeys(r *Root, sigs []Signature) map[keyID]Key {
 // metadata file found earlier in step 4.
 // In either case, the client MUST write the file to non-volatile storage as
 // FILENAME.EXT.
-func (rs *repoMan) downloadTarget(target string, fim *FileIntegrityMeta, destination io.Writer) error {
+func (rs *repoMan) downloadTarget(target string, destination io.Writer) error {
+	if rs.targets == nil {
+		return errors.New("no targets present, was Update called?")
+	}
+	fim, ok := rs.targets.paths[target]
+	if !ok {
+		return errors.Errorf("unknown target %q", target)
+	}
 	// we expect our mirrored distribution targets to be located
 	// at https://mirror.com/gun/targetname
 	mirrorURL, err := url.Parse(rs.settings.MirrorURL)
@@ -565,21 +495,20 @@ func (rs *repoMan) downloadTarget(target string, fim *FileIntegrityMeta, destina
 	if err := fim.verify(io.TeeReader(stream, destination)); err != nil {
 		return errors.Wrap(err, "verifying current target download")
 	}
-
 	return nil
 }
 
-func (rs *repoMan) getLocalTargets() map[string]FileIntegrityMeta {
-	files := make(chan map[string]FileIntegrityMeta)
+func (rs *repoMan) getLocalTargets() FimMap {
+	files := make(chan FimMap)
 	rs.actionc <- func() {
 		if rs.targets != nil {
-			files <- rs.targets.Signed.Targets
+			files <- rs.targets.paths.clone()
 		}
 	}
 	return <-files
 }
 
-func (rs *repoMan) verifySignatures(role marshaller, keys map[keyID]Key, sigs []Signature, threshold int) error {
+func verifySignatures(role marshaller, keys map[keyID]Key, sigs []Signature, threshold int) error {
 	// just in case, make sure threshold is not zero as this would mean we're not checking any sigs
 	if threshold <= 0 {
 		return errors.New("signature threshold must be greater than zero")

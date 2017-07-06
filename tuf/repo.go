@@ -10,21 +10,21 @@ import (
 )
 
 const (
-	tufURLScheme  = "https"
-	tumAPIPattern = `/v2/%s/_trust/tuf/%s.json`
-	healthzPath   = `/_notary_server/health`
-	roleRegex     = `^root$|^[1-9]*[0-9]+\.root$|^snapshot$|^timestamp$|^targets$`
+	tufURLScheme = "https"
+	tufAPIFormat = `/v2/%s/_trust/tuf/%s.json`
+	healthzPath  = `/_notary_server/health`
+	roleRegex    = `^root$|^[1-9]*[0-9]+\.root$|^snapshot$|^timestamp$|^targets$`
 	// http headers
 	cacheControl       = "Cache-Control"
 	cachePolicyNoStore = "no-store"
-)
 
-var errNotFound = errors.New("remote resource does not exist")
+	maxDelegationCount = 50
+)
 
 type repo interface {
 	root(opts ...func() interface{}) (*Root, error)
 	snapshot(opts ...func() interface{}) (*Snapshot, error)
-	targets(opts ...func() interface{}) (*Targets, error)
+	targets(rdr roleFetcher, opts ...func() interface{}) (*RootTarget, error)
 	timestamp() (*Timestamp, error)
 }
 
@@ -35,12 +35,14 @@ type remoteRepo interface {
 
 type persistentRepo interface {
 	repo
-	save(role, interface{}) error
+	baseDir() string
 }
 
 type localRepo struct {
 	repoPath string
 }
+
+func (r localRepo) baseDir() string { return r.repoPath }
 
 type notaryRepo struct {
 	url             *url.URL
@@ -122,4 +124,65 @@ func isRoleCorrect(r role, s interface{}) {
 	if !hit {
 		panic("Programmer error! Role name and role type mismatch.")
 	}
+}
+
+// roleFetcher is an abstraction of a thing that fetches Targets.
+type roleFetcher interface {
+	fetch(path string) (*Targets, error)
+}
+
+// 4.5. **Perform a preorder depth-first search for metadata about the desired
+// target, beginning with the top-level targets role.**
+//
+// targetTreeBuilder performs some special root node initialization and then
+// recursively calls getDelegatedTarget to do a preorder traversal of the
+// Targets tree.
+//
+// Each time a target node is encountered, it persists path information in proper
+// precedence according to the following section.
+// 4.5.1. If this role has been visited before, then skip this role (so that
+// cycles in the delegation graph are avoided).
+// Otherwise, if an application-specific maximum number of roles have been
+// visited, then go to step 5 (so that attackers cannot cause the client to
+// waste excessive bandwidth or time).
+// Otherwise, if this role contains metadata about the desired target, then go
+// to step 5.
+func targetTreeBuilder(fetcher roleFetcher) (*RootTarget, error) {
+	targ, err := fetcher.fetch(string(roleTargets))
+	if err != nil {
+		return nil, err
+	}
+	root := RootTarget{
+		Targets:      targ,
+		paths:        make(FimMap),
+		targetLookup: make(map[string]*Targets),
+	}
+	root.append(string(roleTargets), targ)
+
+	for _, delegation := range root.Signed.Delegations.Roles {
+		err = getDelegatedTarget(fetcher, &root, delegation.Name)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return &root, nil
+}
+
+func getDelegatedTarget(fetcher roleFetcher, root *RootTarget, roleName string) error {
+	target, err := fetcher.fetch(roleName)
+	if err != nil {
+		return err
+	}
+	root.append(roleName, target)
+	for _, role := range target.Signed.Delegations.Roles {
+		err = getDelegatedTarget(fetcher, root, role.Name)
+		// prevent cycles
+		if err == errTargetSeen {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }

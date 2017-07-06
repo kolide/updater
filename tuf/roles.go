@@ -38,8 +38,6 @@ const (
 
 	hashSHA256 hashingMethod = "sha256"
 	hashSHA512 hashingMethod = "sha512"
-
-	filetimeFormat = "20060102150405"
 )
 
 type marshaller interface {
@@ -139,17 +137,56 @@ func (sr SignedTimestamp) canonicalJSON() ([]byte, error) {
 // Targets represents TUF role of the same name.
 // See https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt
 type Targets struct {
-	Signed     SignedTarget `json:"signed"`
-	Signatures []Signature  `json:"signatures"`
+	Signed       SignedTarget `json:"signed"`
+	Signatures   []Signature  `json:"signatures"`
+	delegateRole string
+}
+
+// FimMap is used to map paths to hashes and length information about that
+// file which is used for verification purposes when the file is downloaded.
+type FimMap map[string]FileIntegrityMeta
+
+func (fm FimMap) clone() FimMap {
+	result := make(FimMap)
+	for k, v := range fm {
+		result[k] = *v.clone()
+	}
+	return result
+}
+
+// RootTarget is the top level target it contains some bookeeping infomation
+// about targets
+type RootTarget struct {
+	*Targets
+	targetLookup map[string]*Targets
+	// Contains all the paths (targets) we know about. The highest precedence
+	// path is in the list, if a lower precedence item has the same path,
+	// it is discarded
+	paths            FimMap
+	targetPrecedence []*Targets
+}
+
+func (rt *RootTarget) append(role string, targ *Targets) {
+	targ.delegateRole = role
+	rt.targetLookup[role] = targ
+	rt.targetPrecedence = append(rt.targetPrecedence, targ)
+	// add each target to paths, if we added the target already we
+	// ignore it because a higher precedence delegate has already
+	// added it
+	for targetName, fim := range targ.Signed.Targets {
+		if _, ok := rt.paths[targetName]; !ok {
+			rt.paths[targetName] = fim
+		}
+	}
 }
 
 // SignedTarget specifics of the Targets
 type SignedTarget struct {
-	Type        string                       `json:"_type"`
-	Delegations Delegations                  `json:"delegations"`
-	Expires     time.Time                    `json:"expires"`
-	Targets     map[string]FileIntegrityMeta `json:"targets"`
-	Version     int                          `json:"version"`
+	Type        string      `json:"_type"`
+	Delegations Delegations `json:"delegations"`
+	Expires     time.Time   `json:"expires"`
+	Targets     FimMap      `json:"targets"`
+	Version     int         `json:"version"`
 }
 
 func (sr SignedTarget) canonicalJSON() ([]byte, error) {
@@ -174,9 +211,55 @@ type FileIntegrityMeta struct {
 	Length int64                    `json:"length"`
 }
 
+func newFileItegrityMeta() *FileIntegrityMeta {
+	return &FileIntegrityMeta{
+		Hashes: make(map[hashingMethod]string),
+	}
+}
+
+func (f FileIntegrityMeta) clone() *FileIntegrityMeta {
+	h := make(map[hashingMethod]string)
+	for k, v := range f.Hashes {
+		h[k] = v
+	}
+	return &FileIntegrityMeta{h, f.Length}
+}
+
+func (f FileIntegrityMeta) Equal(fim FileIntegrityMeta) bool {
+	if f.Length != fim.Length {
+		return false
+	}
+	if len(f.Hashes) != len(fim.Hashes) {
+		return false
+	}
+	for algo, hash := range f.Hashes {
+		h, ok := fim.Hashes[algo]
+		if !ok {
+			return false
+		}
+		if h != hash {
+			return false
+		}
+	}
+	return true
+}
+
 type hashInfo struct {
 	h     hash.Hash
 	valid []byte
+}
+
+func getHasher(algoType hashingMethod) (hash.Hash, error) {
+	var hashFunc hash.Hash
+	switch algoType {
+	case hashSHA256:
+		hashFunc = sha256.New()
+	case hashSHA512:
+		hashFunc = sha512.New()
+	default:
+		return nil, errUnsupportedHash
+	}
+	return hashFunc, nil
 }
 
 // File hash and length validation per TUF 5.5.2
@@ -188,13 +271,9 @@ func (fim FileIntegrityMeta) verify(rdr io.Reader) error {
 		if err != nil {
 			return errors.New("invalid hash in verify")
 		}
-		switch algo {
-		case hashSHA256:
-			hashFunc = sha256.New()
-		case hashSHA512:
-			hashFunc = sha512.New()
-		default:
-			return errUnsupportedHash
+		hashFunc, err = getHasher(algo)
+		if err != nil {
+			return err
 		}
 		rdr = io.TeeReader(rdr, hashFunc)
 		hashes = append(hashes, hashInfo{hashFunc, valid})
@@ -214,7 +293,8 @@ func (fim FileIntegrityMeta) verify(rdr io.Reader) error {
 	return nil
 }
 
-// Delegations signing information for targets hosted by external principals
+// Delegations contain signing information for targets hosted by external principals. Delegations
+// are children of targets.
 type Delegations struct {
 	Keys  map[keyID]Key    `json:"keys"`
 	Roles []DelegationRole `json:"roles"`

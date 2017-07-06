@@ -9,6 +9,23 @@ import (
 	"github.com/pkg/errors"
 )
 
+type localTargetFetcher struct {
+	baseDir string
+}
+
+func (rdr *localTargetFetcher) fetch(role string) (*Targets, error) {
+	f, err := os.Open(filepath.Join(rdr.baseDir, fmt.Sprintf("%s.json", role)))
+	if err != nil {
+		return nil, errors.Wrap(err, "local target read from file")
+	}
+	defer f.Close()
+	var result Targets
+	if err = json.NewDecoder(f).Decode(&result); err != nil {
+		return nil, errors.Wrap(err, "decoding json reading local target")
+	}
+	return &result, nil
+}
+
 func (r *localRepo) root(opts ...func() interface{}) (*Root, error) {
 	var root Root
 	err := r.getRole(roleRoot, &root)
@@ -36,25 +53,12 @@ func (r *localRepo) snapshot(opts ...func() interface{}) (*Snapshot, error) {
 	return &ss, nil
 }
 
-func (r *localRepo) targets(opts ...func() interface{}) (*Targets, error) {
-	var ts Targets
-	err := r.getRole(roleTargets, &ts)
+func (r *localRepo) targets(rdr roleFetcher, opts ...func() interface{}) (*RootTarget, error) {
+	rootTarget, err := targetTreeBuilder(rdr)
 	if err != nil {
 		return nil, errors.Wrap(err, "getting local targets role")
 	}
-	return &ts, nil
-}
-
-// save persists role information, r is the role type, and
-// data is the class containing the role information
-func (r *localRepo) save(roleName role, data interface{}) error {
-	isRoleCorrect(roleName, data)
-	f, err := os.OpenFile(filepath.Join(r.repoPath, fmt.Sprintf("%s.json", roleName)), os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return errors.Wrap(err, "opening role file for writing")
-	}
-	defer f.Close()
-	return json.NewEncoder(f).Encode(data)
+	return rootTarget, nil
 }
 
 func (r *localRepo) getRole(name role, val interface{}) error {
