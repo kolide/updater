@@ -1,12 +1,14 @@
 package tuf
 
 ////////////////////////////////////////////////////////////////////////////////
-// Methods in this file are used to save and backup the TUF repository
+// Methods used to save TUF roles that were downloaded from Notary, and rebuilding
+// the local TUF repository.  saveTufRepository is the only method called outside
+// this file, other methods in this file are called from saveTufRepository.
 ////////////////////////////////////////////////////////////////////////////////
 import (
-	"bytes"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -24,9 +26,13 @@ var (
 	backupMatcher = regexp.MustCompile("\\.[0-9]{14}\\.json$")
 )
 
+// Backs up the local TUF repository. If finds all the TUF repository files
+// and makes copies of them using a tag which is a timestamp as part of the file name.
+// All backup files will have the same tag so we are able to associated a particular
+// group/version of backup files.
 func backupTUFRepo(tufRoot, tag string) error {
-	err := checkForDirectoryPresence(tufRoot)
-	if err != nil {
+	var err error
+	if err = checkForDirectoryPresence(tufRoot); err != nil {
 		return err
 	}
 	return filepath.Walk(tufRoot, func(oldPath string, fi os.FileInfo, err error) error {
@@ -38,7 +44,7 @@ func backupTUFRepo(tufRoot, tag string) error {
 				base := filepath.Base(oldPath)
 				dir := filepath.Dir(oldPath)
 				newPath := filepath.Join(dir, strings.Replace(base, ".json", fmt.Sprintf(".%s.json", tag), 1))
-				if err := copy(oldPath, newPath); err != nil {
+				if err = copy(oldPath, newPath); err != nil {
 					return err
 				}
 			}
@@ -47,9 +53,11 @@ func backupTUFRepo(tufRoot, tag string) error {
 	})
 }
 
+// Restores local TUF repository finding all backup files with a matching tag
+// and copying them to normal TUF files.
 func restoreTUFRepo(tufRoot, tag string) error {
-	err := checkForDirectoryPresence(tufRoot)
-	if err != nil {
+	var err error
+	if err = checkForDirectoryPresence(tufRoot); err != nil {
 		return err
 	}
 	tagMatcher := regexp.MustCompile("\\." + tag + "\\.json$")
@@ -62,7 +70,7 @@ func restoreTUFRepo(tufRoot, tag string) error {
 				base := filepath.Base(oldPath)
 				dir := filepath.Dir(oldPath)
 				newPath := filepath.Join(dir, strings.Replace(base, tag+".json", "json", 1))
-				if err := copy(oldPath, newPath); err != nil {
+				if err = copy(oldPath, newPath); err != nil {
 					return err
 				}
 			}
@@ -71,10 +79,10 @@ func restoreTUFRepo(tufRoot, tag string) error {
 	})
 }
 
-// remove backups older than age
+// Remove backups files that are older than the time duration specified by age.
 func removeAgedBackups(tufRoot string, age time.Duration) error {
-	err := checkForDirectoryPresence(tufRoot)
-	if err != nil {
+	var err error
+	if err = checkForDirectoryPresence(tufRoot); err != nil {
 		return err
 	}
 	if age < 0 {
@@ -93,8 +101,7 @@ func removeAgedBackups(tufRoot string, age time.Duration) error {
 				}
 				expirationTime := backupTime.Add(age)
 				if time.Now().UTC().After(expirationTime) {
-					err = os.Remove(path)
-					if err != nil {
+					if err = os.Remove(path); err != nil {
 						return err
 					}
 				}
@@ -113,22 +120,31 @@ type saveSettings struct {
 	targetsRole          *RootTarget
 }
 
+// This function is used to save TUF data downloaded from Notary and save
+// it to the local TUF repository.  The function first removes old backups, then
+// it creates a new backup of the existing local TUF repo, then it saves the
+// TUF data to the local repository, the operation is atomic in that it either
+// completely succeeds, or the existing local repository is restored to it's
+// original state.
 func saveTufRepository(ss *saveSettings) (err error) {
-	tag := time.Now().UTC().Format(time.Now().Format(backupFileTimeTagFormat))
-	err = removeAgedBackups(ss.tufRepositoryRootDir, ss.backupAge)
-	if err != nil {
+	// Create a timestamp tag to group backup files.
+	tag := time.Now().UTC().Format(backupFileTimeTagFormat)
+	// See if we have any old backup files hanging around and get rid of them.
+	if err = removeAgedBackups(ss.tufRepositoryRootDir, ss.backupAge); err != nil {
 		return errors.Wrap(err, "saving roles")
 	}
-	err = backupTUFRepo(ss.tufRepositoryRootDir, tag)
-	if err != nil {
+	// Make a new backup of the local TUF repository.
+	if err = backupTUFRepo(ss.tufRepositoryRootDir, tag); err != nil {
 		return errors.Wrap(err, "saving roles")
 	}
+	// If something goes wrong restore the local TUF repository to it's original
+	// state.
 	defer func() {
 		if err != nil {
 			restoreTUFRepo(ss.tufRepositoryRootDir, tag)
 		}
 	}()
-
+	// Save each cached notary role to a local file.
 	fixedRoles := []struct {
 		cached interface{}
 		name   role
@@ -147,21 +163,22 @@ func saveTufRepository(ss *saveSettings) (err error) {
 			return errors.Wrap(err, "saving roles")
 		}
 	}
-
+	// Save each delegate role
 	for i, delegate := range ss.targetsRole.targetPrecedence {
 		// The first Target will always be the root target, which we've
 		// already written to file.
 		if i == 0 {
 			continue
 		}
-		err = saveRole(ss.tufRepositoryRootDir, delegate.delegateRole, delegate)
-		if err != nil {
+		if err = saveRole(ss.tufRepositoryRootDir, delegate.delegateRole, delegate); err != nil {
 			return errors.Wrapf(err, "failed to save delegate %q", delegate.delegateRole)
 		}
 	}
 	return nil
 }
 
+// Saves TUF data to a local repository file. Fixed TUF roles are saved as
+// top level files in the repository. Delegate roles are saved in a tree structure.
 func saveRole(tufRoot, roleName string, val interface{}) error {
 	var fileName string
 	if _, ok := val.(*Targets); ok {
@@ -181,25 +198,12 @@ func saveRole(tufRoot, roleName string, val interface{}) error {
 	} else {
 		fileName = fmt.Sprintf("%s.json", roleName)
 	}
-
 	buff, err := cjson.MarshalCanonical(val)
 	if err != nil {
 		return errors.Wrap(err, "marshalling role")
 	}
 	rolePath := filepath.Join(tufRoot, fileName)
-	f, err := os.OpenFile(rolePath, os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return errors.Wrap(err, "opening file to save role")
-	}
-	defer f.Close()
-	written, err := io.Copy(f, bytes.NewBuffer(buff))
-	if err != nil {
-		return errors.Wrap(err, "writing role to tuf repo")
-	}
-	if written != int64(len(buff)) {
-		errors.New("incomplete write of role to file")
-	}
-	return nil
+	return ioutil.WriteFile(rolePath, buff, 0644)
 }
 
 func checkForDirectoryPresence(dir string) error {
@@ -213,6 +217,7 @@ func checkForDirectoryPresence(dir string) error {
 	return nil
 }
 
+// Platform independent file copy.
 func copy(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {

@@ -146,6 +146,14 @@ type Targets struct {
 // file which is used for verification purposes when the file is downloaded.
 type FimMap map[string]FileIntegrityMeta
 
+func (fm FimMap) clone() FimMap {
+	result := make(FimMap)
+	for k, v := range fm {
+		result[k] = *v.clone()
+	}
+	return result
+}
+
 // RootTarget is the top level target it contains some bookeeping infomation
 // about targets
 type RootTarget struct {
@@ -203,7 +211,15 @@ type FileIntegrityMeta struct {
 	Length int64                    `json:"length"`
 }
 
-func (f FileIntegrityMeta) equal(fim FileIntegrityMeta) bool {
+func (f FileIntegrityMeta) clone() *FileIntegrityMeta {
+	h := make(map[hashingMethod]string)
+	for k, v := range f.Hashes {
+		h[k] = v
+	}
+	return &FileIntegrityMeta{h, f.Length}
+}
+
+func (f FileIntegrityMeta) Equal(fim FileIntegrityMeta) bool {
 	if f.Length != fim.Length {
 		return false
 	}

@@ -70,10 +70,9 @@ type repoMan struct {
 	snapshot  *Snapshot
 	targets   *RootTarget
 	client    *http.Client
-	klock     clock.Clock
+	clock     clock.Clock
 	actionc   chan func()
 	quit      chan chan struct{}
-	changed   []string
 	backupAge time.Duration
 }
 
@@ -82,6 +81,7 @@ func (rs *repoMan) Stop() {
 	rs.quit <- quit
 	<-quit
 }
+
 func (rs *repoMan) save() error {
 
 	ss := saveSettings{
@@ -94,47 +94,51 @@ func (rs *repoMan) save() error {
 	}
 	if err := saveTufRepository(&ss); err != nil {
 		return errors.Wrap(err, "failed to save tuf repo")
-
 	}
 	return nil
-
 }
 
-func (rs *repoMan) refresh() error {
-	errc := make(chan error)
+type refreshResponse struct {
+	latest bool
+	err    error
+}
+
+func (rs *repoMan) refresh() (bool, error) {
+	errc := make(chan refreshResponse)
+
 	rs.actionc <- func() {
 		root, err := rs.refreshRoot()
 		if err != nil {
-			errc <- errors.Wrap(err, "refreshing root")
+			errc <- refreshResponse{false, errors.Wrap(err, "refreshing root")}
 			return
 		}
 		rs.root = root
 		timestamp, err := rs.refreshTimestamp(root)
 		if err != nil {
-			errc <- errors.Wrap(err, "refreshing timestamp")
+			errc <- refreshResponse{false, errors.Wrap(err, "refreshing timestamp")}
 			return
 		}
 		rs.timestamp = timestamp
 		snapshot, err := rs.refreshSnapshot(root, timestamp)
 		if err != nil {
-			errc <- errors.Wrap(err, "refreshing snapshot")
+			errc <- refreshResponse{false, errors.Wrap(err, "refreshing snapshot")}
 			return
 		}
 		rs.snapshot = snapshot
 		targets, changed, err := rs.refreshTargets(root, snapshot)
 		if err != nil {
-			errc <- errors.Wrap(err, "refreshing targets")
+			errc <- refreshResponse{false, errors.Wrap(err, "refreshing targets")}
 			return
 		}
 		rs.targets = targets
-		rs.changed = changed
 		if err := rs.save(); err != nil {
-			errc <- errors.Wrap(err, "saving new tuf repo")
+			errc <- refreshResponse{false, errors.Wrap(err, "saving new tuf repo")}
 			return
 		}
-		errc <- nil
+		errc <- refreshResponse{len(changed) == 0, nil}
 	}
-	return <-errc
+	rr := <-errc
+	return rr.latest, rr.err
 }
 
 func (rs *repoMan) loop() {
@@ -155,7 +159,7 @@ func newRepoMan(repo persistentRepo, notary remoteRepo, settings *Settings, clie
 		repo:      repo,
 		notary:    notary,
 		client:    client,
-		klock:     k,
+		clock:     k,
 		backupAge: backupAge,
 		actionc:   make(chan func()),
 		quit:      make(chan chan struct{}),
@@ -271,7 +275,7 @@ func (rs *repoMan) refreshTimestamp(root *Root) (*Timestamp, error) {
 	}
 	// 2.3. **Check for a freeze attack.** The latest known time should be lower
 	// than the expiration timestamp in this metadata file.
-	if rs.klock.Now().After(remote.Signed.Expires) {
+	if rs.clock.Now().After(remote.Signed.Expires) {
 		return nil, errFreezeAttack
 	}
 	return remote, nil
@@ -341,7 +345,7 @@ func (rs *repoMan) refreshSnapshot(root *Root, timestamp *Timestamp) (*Snapshot,
 	}
 	// 3.4. **Check for a freeze attack.** The latest known time should be lower
 	// than the expiration timestamp in this metadata file.
-	if rs.klock.Now().After(current.Signed.Expires) {
+	if rs.clock.Now().After(current.Signed.Expires) {
 		return nil, errFreezeAttack
 	}
 	return current, nil
@@ -395,7 +399,7 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, 
 		rootRole:        root,
 		snapshotRole:    snapshot,
 		localRootTarget: previous,
-		klock:           rs.klock,
+		klock:           rs.clock,
 	}
 	targetFetcher, err := newNotaryTargetFetcher(settings)
 	if err != nil {
@@ -421,7 +425,7 @@ func getChangedPaths(local *RootTarget, fromNotary *RootTarget) []string {
 		}
 		// if paths exist in both local and notary versions of the repo,
 		// compare hashes to detect changes.
-		if !fim.equal(lfim) {
+		if !fim.Equal(lfim) {
 			changed = append(changed, targetName)
 		}
 	}
@@ -494,19 +498,14 @@ func (rs *repoMan) downloadTarget(target string, destination io.Writer) error {
 	return nil
 }
 
-func (rs *repoMan) getLocalTargets() []string {
-	changes := make(chan []string)
+func (rs *repoMan) getLocalTargets() FimMap {
+	files := make(chan FimMap)
 	rs.actionc <- func() {
 		if rs.targets != nil {
-			if rs.changed == nil {
-				changes <- []string{}
-				return
-			}
-			var cloned []string
-			changes <- append(cloned, rs.changed...)
+			files <- rs.targets.paths.clone()
 		}
 	}
-	return <-changes
+	return <-files
 }
 
 func verifySignatures(role marshaller, keys map[keyID]Key, sigs []Signature, threshold int) error {

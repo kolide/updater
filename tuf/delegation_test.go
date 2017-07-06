@@ -2,7 +2,6 @@ package tuf
 
 import (
 	"bytes"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -124,14 +123,8 @@ func TestTargetReadWithValidations(t *testing.T) {
 	testTime, _ := time.Parse(time.UnixDate, "Sat Jul 1 18:00:00 CST 2017")
 
 	rrs := notaryTargetFetcherSettings{
-		gun: testRootPath,
-		client: &http.Client{
-			Transport: &http.Transport{
-				TLSClientConfig: &tls.Config{
-					InsecureSkipVerify: true,
-				},
-			},
-		},
+		gun:             testRootPath,
+		client:          testHTTPClient(),
 		url:             svr.URL,
 		maxResponseSize: defaultMaxResponseSize,
 		rootRole:        rootRole,
@@ -151,19 +144,20 @@ func TestTargetReadWithValidations(t *testing.T) {
 func noChangeDetected(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
 	client, err := NewClient(settings, WithHTTPClient(c), withClock(k))
 	require.Nil(t, err)
-	changes, err := client.Update()
+	_, latest, err := client.Update()
 	require.Nil(t, err)
-	assert.NotNil(t, changes)
-	require.Empty(t, changes)
+	assert.True(t, latest)
 }
 
 func existingPathChanged(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
 	client, err := NewClient(settings, WithHTTPClient(c), withClock(k))
 	require.Nil(t, err)
-	changes, err := client.Update()
+	fims, latest, err := client.Update()
 	require.Nil(t, err)
-	// a path changed so we don't have latest
-	require.True(t, hasTarget("edge/target", changes))
+	require.Nil(t, err)
+	assert.False(t, latest)
+	_, ok := fims["edge/target"]
+	require.True(t, ok)
 	download := filepath.Join(stageDir, "target")
 	out, err := os.Create(download)
 	require.Nil(t, err)
@@ -183,12 +177,11 @@ func existingPathChanged(t *testing.T, settings *Settings, c *http.Client, stage
 func nonprecedentPathChange(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
 	client, err := NewClient(settings, WithHTTPClient(c), withClock(k))
 	require.Nil(t, err)
-	changed, err := client.Update()
+	_, latest, err := client.Update()
 	require.Nil(t, err)
 	// Path changed, but not by the highest precedence delegate, so we have the
 	// latest.
-	require.NotNil(t, changed)
-	assert.Empty(t, changed)
+	require.True(t, latest)
 	download := filepath.Join(stageDir, "target")
 	out, err := os.Create(download)
 	require.Nil(t, err)
@@ -206,7 +199,6 @@ func autoupdateDetectedChange(t *testing.T, settings *Settings, c *http.Client, 
 		updateErr error
 		lock      sync.Mutex
 	)
-
 	onUpdate := func(stagingPath string, err error) {
 		lock.Lock()
 		defer lock.Unlock()
@@ -220,9 +212,9 @@ func autoupdateDetectedChange(t *testing.T, settings *Settings, c *http.Client, 
 		WithAutoUpdate("edge/target", stageDir, onUpdate),
 	)
 	require.Nil(t, err)
-	time.Sleep(500 * time.Millisecond)
+	// we have to wait to few moments for the delegate to get called
+	time.Sleep(200 * time.Millisecond)
 	defer client.Stop()
-
 	lock.Lock()
 	defer lock.Unlock()
 	require.True(t, called)
@@ -263,16 +255,52 @@ func createLocalTestRepo(t *testing.T, localRepoDir, assetParentDir string) {
 	}
 }
 
+func setupEndToEndTest(t *testing.T, remoteVersion, localVersion int) (*Settings, string, func()) {
+	stagingDir, err := ioutil.TempDir("", "staging")
+	require.Nil(t, err)
+	localRepoDir, err := ioutil.TempDir("", "local")
+	require.Nil(t, err)
+	createLocalTestRepo(t, localRepoDir, path.Join(assetRoot, strconv.Itoa(localVersion)))
+	notary := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.RequestURI == "/_notary_server/health" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		base := strings.Replace(r.RequestURI, fmt.Sprintf("/v2/%s/_trust/tuf/", testGUN), "", 1)
+		buff, err := test.Asset(path.Join(assetRoot, strconv.Itoa(remoteVersion), base))
+		if err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, err = w.Write(buff)
+		require.Nil(t, err)
+	}))
+	mirror := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		base := strings.Replace(r.RequestURI, "/"+testGUN, "", 1)
+		assetPath := path.Join(fmt.Sprintf("%s/%d", mirrorRoot, remoteVersion), base)
+		buff, err := test.Asset(assetPath)
+		require.Nil(t, err)
+		w.Write(buff)
+	}))
+	settings := &Settings{
+		LocalRepoPath: localRepoDir,
+		NotaryURL:     notary.URL,
+		MirrorURL:     mirror.URL,
+		GUN:           testGUN,
+	}
+	cleanup := func() {
+		os.RemoveAll(stagingDir)
+		os.RemoveAll(localRepoDir)
+		notary.Close()
+		mirror.Close()
+	}
+	return settings, stagingDir, cleanup
+}
+
 func TestEndToEnd(t *testing.T) {
 	testTime, _ := time.Parse(time.UnixDate, "Sat Jul 1 18:00:00 CST 2017")
 	mockClock := clock.NewMockClock(testTime)
-	client := &http.Client{
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: true,
-			},
-		},
-	}
+	client := testHTTPClient()
 
 	tt := []struct {
 		name              string
@@ -287,44 +315,9 @@ func TestEndToEnd(t *testing.T) {
 	}
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
-			stagingDir, err := ioutil.TempDir("", "staging")
-			require.Nil(t, err)
-			defer os.RemoveAll(stagingDir)
-			localRepoDir, err := ioutil.TempDir("", "local")
-			require.Nil(t, err)
-			defer os.RemoveAll(localRepoDir)
-			createLocalTestRepo(t, localRepoDir, path.Join(assetRoot, strconv.Itoa(tc.localRepoVersion)))
-			notaryRepo := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.RequestURI == "/_notary_server/health" {
-					w.WriteHeader(http.StatusOK)
-					return
-				}
-				base := strings.Replace(r.RequestURI, fmt.Sprintf("/v2/%s/_trust/tuf/", testGUN), "", 1)
-				buff, err := test.Asset(path.Join(assetRoot, strconv.Itoa(tc.remoteRepoVersion), base))
-				if err != nil {
-					w.WriteHeader(http.StatusNotFound)
-					return
-				}
-				_, err = w.Write(buff)
-				require.Nil(t, err)
-			}))
-			defer notaryRepo.Close()
-			mirrorServer := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				base := strings.Replace(r.RequestURI, "/"+testGUN, "", 1)
-				assetPath := path.Join(fmt.Sprintf("%s/%d", mirrorRoot, tc.remoteRepoVersion), base)
-				buff, err := test.Asset(assetPath)
-				require.Nil(t, err)
-				w.Write(buff)
-			}))
-			defer mirrorServer.Close()
-
-			settings := Settings{
-				LocalRepoPath: localRepoDir,
-				NotaryURL:     notaryRepo.URL,
-				MirrorURL:     mirrorServer.URL,
-				GUN:           testGUN,
-			}
-			tc.testCase(t, &settings, client, stagingDir, mockClock)
+			settings, stagingDir, cleanup := setupEndToEndTest(t, tc.remoteRepoVersion, tc.localRepoVersion)
+			defer cleanup()
+			tc.testCase(t, settings, client, stagingDir, mockClock)
 		})
 	}
 }

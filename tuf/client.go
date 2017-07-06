@@ -25,7 +25,7 @@ type Client struct {
 	stagingPath         string
 	notificationHandler NotificationHandler
 	quit                chan chan struct{}
-	klock               clock.Clock
+	clock               clock.Clock
 	client              *http.Client
 	maxResponseSize     int64
 }
@@ -79,12 +79,6 @@ func WithHTTPClient(httpClient *http.Client) Option {
 	}
 }
 
-func withClock(mc clock.Clock) Option {
-	return func(c *Client) {
-		c.klock = mc
-	}
-}
-
 // NewClient creates a TUF Client which can securely download packages from a remote mirror.
 // The Client downloads payloads(also called targets) from a remote mirror, validating
 // each payload according to the TUF spec. The Client uses a Docker Notary service to
@@ -102,7 +96,7 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 		checkFrequency:  defaultCheckFrequency,
 		backupFileAge:   defaultBackupAge,
 		quit:            make(chan chan struct{}),
-		klock:           &clock.DefaultClock{},
+		clock:           &clock.DefaultClock{},
 	}
 	for _, opt := range opts {
 		opt(&client)
@@ -119,7 +113,7 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 	if err != nil {
 		return nil, errors.New("creating local tuf role repo")
 	}
-	client.manager = newRepoMan(localRepo, notary, settings, notary.client, client.backupFileAge, client.klock)
+	client.manager = newRepoMan(localRepo, notary, settings, notary.client, client.backupFileAge, client.clock)
 	if client.watchedTarget != "" {
 		go client.monitorTarget()
 	}
@@ -134,13 +128,13 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 // Note that we expect that we do not use consistent snapshots and delegations are
 // not supported because for our purposes, both are unnecessary.
 // See https://github.com/theupdateframework/tuf/blob/904fa9b8df8ab8c632a210a2b05fd741e366788a/docs/tuf-spec.txt
-func (c *Client) Update() ([]string, error) {
-	err := c.manager.refresh()
+func (c *Client) Update() (files FimMap, latest bool, err error) {
+	latest, err = c.manager.refresh()
 	if err != nil {
-		return nil, errors.Wrap(err, "refreshing state")
+		return nil, false, errors.Wrap(err, "refreshing state")
 	}
-	changes := c.manager.getLocalTargets()
-	return changes, nil
+	files = c.manager.getLocalTargets()
+	return files, latest, nil
 }
 
 // Download downloads a local resource from a remote URL.
@@ -152,38 +146,58 @@ func (c *Client) Download(targetName string, destination io.Writer) error {
 	return nil
 }
 
+func (c *Client) getCurrentFileInfo(watched string) (*FileIntegrityMeta, error) {
+	// get current file state from local repository
+	var local localRepo
+	currentTargets, err := local.targets(&localTargetFetcher{c.manager.settings.LocalRepoPath})
+	if err != nil {
+		return nil, errors.Wrap(err, "getting local targets")
+	}
+	fim, ok := currentTargets.paths[watched]
+	if !ok {
+		return nil, errors.Errorf("no such target %q", watched)
+	}
+	return &fim, nil
+}
+
 func (c *Client) monitorTarget() {
-	ticker := c.klock.NewTicker(c.checkFrequency)
+	var (
+		err error
+		old *FileIntegrityMeta
+	)
+	ticker := c.clock.NewTicker(c.checkFrequency).Chan()
 	for {
-		changes, err := c.Update()
+		// Get the state of our current files from the local repo
+		if old == nil {
+			old, err = c.getCurrentFileInfo(c.watchedTarget)
+			if err != nil {
+				c.notificationHandler("", err)
+			}
+		}
+		files, _, err := c.Update()
 		if err != nil {
 			c.notificationHandler("", err)
 		}
-		if hasTarget(c.watchedTarget, changes) {
-			c.download()
+		new, ok := files[c.watchedTarget]
+		if ok {
+			c.downloadIfNew(old, &new)
+			old = &new
+		} else {
+			c.notificationHandler("", errors.Errorf("no such target %q", c.watchedTarget))
 		}
 		select {
-		case <-ticker.Chan():
+		case <-ticker:
 		case quit := <-c.quit:
-			c.manager.Stop()
 			close(quit)
 			return
 		}
 	}
 }
 
-func hasTarget(target string, changes []string) bool {
-	if changes != nil {
-		for _, change := range changes {
-			if change == target {
-				return true
-			}
-		}
+func (c *Client) downloadIfNew(old, new *FileIntegrityMeta) {
+	if old == nil || old.Equal(*new) {
+		return
 	}
-	return false
-}
-
-func (c *Client) download() {
 	dpath := filepath.Join(c.stagingPath, c.watchedTarget)
 	if err := os.MkdirAll(filepath.Dir(dpath), 0755); err != nil {
 		c.notificationHandler("", err)
@@ -198,13 +212,12 @@ func (c *Client) download() {
 		destination.Close()
 		os.Remove(dpath)
 		c.notificationHandler("", err)
-		return
 	} else {
 		// the file descriptor must be closed in order to allow the
 		// notificationHandler to work with the file in the staging path.
 		destination.Close()
 		c.notificationHandler(dpath, nil)
-		return
+
 	}
 }
 
@@ -215,6 +228,7 @@ func (c *Client) Stop() {
 		c.quit <- quit
 		<-quit
 	}
+	c.manager.Stop()
 }
 
 func defaultHttpClient() *http.Client {

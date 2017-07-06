@@ -21,6 +21,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func withClock(mc clock.Clock) Option {
+	return func(c *Client) {
+		c.clock = mc
+	}
+}
+
 func TestURLValidation(t *testing.T) {
 	settings := &Settings{
 		NotaryURL: "https://foo.com/zip.json",
@@ -185,10 +191,10 @@ func TestClientNoUpdates(t *testing.T) {
 	mockClock := clock.NewMockClock(testTime)
 	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()), withClock(mockClock))
 	require.Nil(t, err)
-	changes, err := client.Update()
+	fims, latest, err := client.Update()
 	require.Nil(t, err)
-	require.NotNil(t, changes)
-	assert.Empty(t, changes)
+	require.True(t, latest)
+	assert.Len(t, fims, 2)
 
 }
 
@@ -226,10 +232,9 @@ func TestClientWithUpdates(t *testing.T) {
 	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()), withClock(clock.NewMockClock(testTime)))
 	require.Nil(t, err)
 
-	changes, err := client.Update()
+	_, latest, err := client.Update()
 	require.Nil(t, err)
-	require.NotNil(t, changes)
-	require.NotEmpty(t, changes)
+	require.False(t, latest)
 
 	// make sure all the files we are supposed to create are there
 	files := []string{
@@ -259,9 +264,9 @@ func TestWithRootKeyRotation(t *testing.T) {
 	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()), withClock(clock.NewMockClock(testTime)))
 	require.Nil(t, err)
 
-	changes, err := client.Update()
+	_, latest, err := client.Update()
 	require.Nil(t, err)
-	require.Empty(t, changes)
+	require.True(t, latest)
 
 	// make sure all the files we are supposed to create are there
 	files := []string{
@@ -291,10 +296,9 @@ func TestWithTimestampKeyRotation(t *testing.T) {
 	client, err := NewClient(settings, WithHTTPClient(testHTTPClient()), withClock(clock.NewMockClock(testTime)))
 	require.Nil(t, err)
 
-	changes, err := client.Update()
+	_, latest, err := client.Update()
 	require.Nil(t, err)
-	require.NotNil(t, changes)
-	require.Empty(t, changes)
+	require.True(t, latest)
 
 	// make sure all the files we are supposed to create are there
 	files := []string{
