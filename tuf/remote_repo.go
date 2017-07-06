@@ -22,7 +22,7 @@ type notaryTargetFetcherSettings struct {
 	rootRole        *Root
 	snapshotRole    *Snapshot
 	localRootTarget *RootTarget
-	klock           clock.Clock
+	clock           clock.Clock
 }
 
 type notaryTargetFetcher struct {
@@ -143,7 +143,7 @@ func (rdr *notaryTargetFetcher) compareToExistingTarget(delegate string, target 
 	}
 	// 4.4. **Check for a freeze attack.** The latest known time should be lower
 	// than the expiration timestamp in this metadata file.
-	if rdr.settings.klock.Now().After(target.Signed.Expires) {
+	if rdr.settings.clock.Now().After(target.Signed.Expires) {
 		return errFreezeAttack
 	}
 	return nil

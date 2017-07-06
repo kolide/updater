@@ -130,7 +130,7 @@ func TestTargetReadWithValidations(t *testing.T) {
 		rootRole:        rootRole,
 		snapshotRole:    snapshotRole,
 		localRootTarget: rootTarget,
-		klock:           clock.NewMockClock(testTime),
+		clock:           clock.NewMockClock(testTime),
 	}
 	rtr, err := newNotaryTargetFetcher(&rrs)
 	require.Nil(t, err)

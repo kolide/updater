@@ -211,6 +211,12 @@ type FileIntegrityMeta struct {
 	Length int64                    `json:"length"`
 }
 
+func newFileItegrityMeta() *FileIntegrityMeta {
+	return &FileIntegrityMeta{
+		Hashes: make(map[hashingMethod]string),
+	}
+}
+
 func (f FileIntegrityMeta) clone() *FileIntegrityMeta {
 	h := make(map[hashingMethod]string)
 	for k, v := range f.Hashes {

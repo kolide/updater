@@ -31,8 +31,7 @@ var (
 // All backup files will have the same tag so we are able to associated a particular
 // group/version of backup files.
 func backupTUFRepo(tufRoot, tag string) error {
-	var err error
-	if err = checkForDirectoryPresence(tufRoot); err != nil {
+	if err := checkForDirectoryPresence(tufRoot); err != nil {
 		return err
 	}
 	return filepath.Walk(tufRoot, func(oldPath string, fi os.FileInfo, err error) error {
@@ -56,8 +55,7 @@ func backupTUFRepo(tufRoot, tag string) error {
 // Restores local TUF repository finding all backup files with a matching tag
 // and copying them to normal TUF files.
 func restoreTUFRepo(tufRoot, tag string) error {
-	var err error
-	if err = checkForDirectoryPresence(tufRoot); err != nil {
+	if err := checkForDirectoryPresence(tufRoot); err != nil {
 		return err
 	}
 	tagMatcher := regexp.MustCompile("\\." + tag + "\\.json$")
@@ -81,8 +79,7 @@ func restoreTUFRepo(tufRoot, tag string) error {
 
 // Remove backups files that are older than the time duration specified by age.
 func removeAgedBackups(tufRoot string, age time.Duration) error {
-	var err error
-	if err = checkForDirectoryPresence(tufRoot); err != nil {
+	if err := checkForDirectoryPresence(tufRoot); err != nil {
 		return err
 	}
 	if age < 0 {

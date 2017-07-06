@@ -147,8 +147,8 @@ type roleFetcher interface {
 // waste excessive bandwidth or time).
 // Otherwise, if this role contains metadata about the desired target, then go
 // to step 5.
-func targetTreeBuilder(rdr roleFetcher) (*RootTarget, error) {
-	targ, err := rdr.fetch(string(roleTargets))
+func targetTreeBuilder(fetcher roleFetcher) (*RootTarget, error) {
+	targ, err := fetcher.fetch(string(roleTargets))
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +160,7 @@ func targetTreeBuilder(rdr roleFetcher) (*RootTarget, error) {
 	root.append(string(roleTargets), targ)
 
 	for _, delegation := range root.Signed.Delegations.Roles {
-		err = getDelegatedTarget(rdr, &root, delegation.Name)
+		err = getDelegatedTarget(fetcher, &root, delegation.Name)
 		if err != nil {
 			return nil, err
 		}
@@ -168,16 +168,16 @@ func targetTreeBuilder(rdr roleFetcher) (*RootTarget, error) {
 	return &root, nil
 }
 
-func getDelegatedTarget(rdr roleFetcher, root *RootTarget, roleName string) error {
-	target, err := rdr.fetch(roleName)
+func getDelegatedTarget(fetcher roleFetcher, root *RootTarget, roleName string) error {
+	target, err := fetcher.fetch(roleName)
 	if err != nil {
 		return err
 	}
 	root.append(roleName, target)
 	for _, role := range target.Signed.Delegations.Roles {
-		err = getDelegatedTarget(rdr, root, role.Name)
+		err = getDelegatedTarget(fetcher, root, role.Name)
 		// prevent cycles
-		if err != nil && err == errTargetSeen {
+		if err == errTargetSeen {
 			continue
 		}
 		if err != nil {

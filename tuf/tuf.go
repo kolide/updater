@@ -399,7 +399,7 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, 
 		rootRole:        root,
 		snapshotRole:    snapshot,
 		localRootTarget: previous,
-		klock:           rs.clock,
+		clock:           rs.clock,
 	}
 	targetFetcher, err := newNotaryTargetFetcher(settings)
 	if err != nil {

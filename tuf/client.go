@@ -146,29 +146,30 @@ func (c *Client) Download(targetName string, destination io.Writer) error {
 	return nil
 }
 
+// Note that the returned fim is always non-null.  In case of error an 'empty'
+// fim will be returned that will never be equal to a fim that refers to a real file.
 func (c *Client) getCurrentFileInfo(watched string) (*FileIntegrityMeta, error) {
+	emptyFim := newFileItegrityMeta()
 	// get current file state from local repository
 	var local localRepo
 	currentTargets, err := local.targets(&localTargetFetcher{c.manager.settings.LocalRepoPath})
 	if err != nil {
-		return nil, errors.Wrap(err, "getting local targets")
+		return emptyFim, errors.Wrap(err, "getting local targets")
 	}
 	fim, ok := currentTargets.paths[watched]
 	if !ok {
-		return nil, errors.Errorf("no such target %q", watched)
+		return emptyFim, errors.Errorf("no such target %q", watched)
 	}
 	return &fim, nil
 }
 
 func (c *Client) monitorTarget() {
-	var (
-		err error
-		old *FileIntegrityMeta
-	)
+	var err error
+	old := newFileItegrityMeta()
 	ticker := c.clock.NewTicker(c.checkFrequency).Chan()
 	for {
 		// Get the state of our current files from the local repo
-		if old == nil {
+		if old.Length == 0 {
 			old, err = c.getCurrentFileInfo(c.watchedTarget)
 			if err != nil {
 				c.notificationHandler("", err)
@@ -178,10 +179,10 @@ func (c *Client) monitorTarget() {
 		if err != nil {
 			c.notificationHandler("", err)
 		}
-		new, ok := files[c.watchedTarget]
+		current, ok := files[c.watchedTarget]
 		if ok {
-			c.downloadIfNew(old, &new)
-			old = &new
+			c.downloadIfNew(old, &current)
+			old = &current
 		} else {
 			c.notificationHandler("", errors.Errorf("no such target %q", c.watchedTarget))
 		}
@@ -194,8 +195,8 @@ func (c *Client) monitorTarget() {
 	}
 }
 
-func (c *Client) downloadIfNew(old, new *FileIntegrityMeta) {
-	if old == nil || old.Equal(*new) {
+func (c *Client) downloadIfNew(old, current *FileIntegrityMeta) {
+	if old.Equal(*current) {
 		return
 	}
 	dpath := filepath.Join(c.stagingPath, c.watchedTarget)
@@ -217,7 +218,6 @@ func (c *Client) downloadIfNew(old, new *FileIntegrityMeta) {
 		// notificationHandler to work with the file in the staging path.
 		destination.Close()
 		c.notificationHandler(dpath, nil)
-
 	}
 }
 
