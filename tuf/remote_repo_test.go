@@ -131,13 +131,13 @@ func TestTheReadSizeLimitsAreEnforced(t *testing.T) {
 			},
 		},
 	}
-	// it should fail if the expected size is smaller the remote response
-	_, err := r.snapshot(expectedSize(902))
+	// it should fail if the expected size is smaller than the remote response
+	_, err := r.snapshot(withRoleExpectedLength(901))
 	require.NotNil(t, err)
-	assert.EqualError(t, err, "remote response size exceeds expected")
+	assert.EqualError(t, err, "parsing json returned from server: unexpected EOF")
 	// it should succeed if the expected size is the same as the actual size of
 	// the remote response
-	_, err = r.snapshot(expectedSize(903))
+	_, err = r.snapshot(withRoleExpectedLength(903))
 	require.Nil(t, err)
 
 }
@@ -165,7 +165,7 @@ func TestGetVersionRoot(t *testing.T) {
 		},
 	}
 
-	root, err := r.root(version(1))
+	root, err := r.root(withRootVersion(1))
 	require.Nil(t, err)
 	require.NotNil(t, root)
 

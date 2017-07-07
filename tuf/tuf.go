@@ -202,7 +202,7 @@ func (rs *repoMan) refreshRoot() (*Root, error) {
 		// kilobytes. The filename used to download the root metadata file is of the
 		// fixed form VERSION.FILENAME.EXT (e.g., 42.root.json). If this file is not
 		// available, then go to step 1.8.
-		nextRoot, err := rs.notary.root(version(root.Signed.Version + 1))
+		nextRoot, err := rs.notary.root(withRootVersion(root.Signed.Version + 1))
 		if err == errNotFound {
 			break
 		}
@@ -300,15 +300,14 @@ func (rs *repoMan) refreshSnapshot(root *Root, timestamp *Timestamp) (*Snapshot,
 	if !ok {
 		return nil, errors.New("expected snapshot metadata was missing from timestamp role")
 	}
-	var ssOpts []func() interface{}
-	ssOpts = append(ssOpts, expectedSize(fim.Length))
-	hash, ok := fim.Hashes[hashSHA256]
-	if ok {
-		ssOpts = append(ssOpts, testSHA256(hash))
-	}
-	hash, ok = fim.Hashes[hashSHA512]
-	if ok {
-		ssOpts = append(ssOpts, testSHA512(hash))
+	var ssOpts []repoOption
+	ssOpts = append(ssOpts, withRoleExpectedLength(fim.Length))
+	for algo, expectedHash := range fim.Hashes {
+		hashTest, err := newHashInfo(algo, []byte(expectedHash))
+		if err != nil {
+			return nil, errors.Wrap(err, "refresh snapshot collecting hash tests")
+		}
+		ssOpts = append(ssOpts, withRoleTest(hashTest))
 	}
 	current, err := rs.notary.snapshot(ssOpts...)
 	if err != nil {
@@ -370,20 +369,20 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, 
 	// number of this metadata file MUST match the snapshot metadata. This is
 	// done, in part, to prevent a mix-and-match attack by man-in-the-middle
 	// attackers.
-	fim, ok := snapshot.Signed.Meta[roleTargets]
-	if !ok {
-		return nil, nil, errors.New("missing target metadata in snapshot")
-	}
-	var opts []func() interface{}
-	opts = append(opts, expectedSize(fim.Length))
-	hash, ok := fim.Hashes[hashSHA256]
-	if ok {
-		opts = append(opts, testSHA256(hash))
-	}
-	hash, ok = fim.Hashes[hashSHA512]
-	if ok {
-		opts = append(opts, testSHA512(hash))
-	}
+	// fim, ok := snapshot.Signed.Meta[roleTargets]
+	// if !ok {
+	// 	return nil, nil, errors.New("missing target metadata in snapshot")
+	// }
+	// var opts []func() interface{}
+	// opts = append(opts, expectedSize(fim.Length))
+	// hash, ok := fim.Hashes[hashSHA256]
+	// if ok {
+	// 	opts = append(opts, testSHA256(hash))
+	// }
+	// hash, ok = fim.Hashes[hashSHA512]
+	// if ok {
+	// 	opts = append(opts, testSHA512(hash))
+	// }
 	previous, err := rs.repo.targets(&localTargetFetcher{rs.repo.baseDir()})
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "fetching local targets")
@@ -405,7 +404,7 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, 
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "notary reader creation")
 	}
-	current, err := rs.notary.targets(targetFetcher, opts...)
+	current, err := rs.notary.targets(targetFetcher)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "retrieving timestamp from notary")
 	}

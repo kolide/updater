@@ -2,8 +2,6 @@ package tuf
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"crypto/sha512"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +10,7 @@ import (
 
 	"github.com/WatchBeam/clock"
 	"github.com/pkg/errors"
+	"github.com/y0ssar1an/q"
 )
 
 type notaryTargetFetcherSettings struct {
@@ -158,59 +157,18 @@ func (rdr *notaryTargetFetcher) saveKeysForRoles(target *Targets) {
 	}
 }
 
-// optional args
-type roleVersion int
-
-// pass optional role version to root()
-func version(v int) func() interface{} {
-	return func() interface{} {
-		return roleVersion(v)
-	}
-}
-
-type expectedSizeType int64
-
-func expectedSize(size int64) func() interface{} {
-	return func() interface{} {
-		return expectedSizeType(size)
-	}
-}
-
 type tester interface {
 	test([]byte) error
 }
 
-func testSHA256(hash string) func() interface{} {
-	return func() interface{} {
-		return &hashTester{
-			encodedHash: hash,
-			hasher: func(b []byte) []byte {
-				h := sha256.Sum256(b)
-				return h[:]
-			},
-		}
-	}
-}
-
-func testSHA512(hash string) func() interface{} {
-	return func() interface{} {
-		return &hashTester{
-			encodedHash: hash,
-			hasher: func(b []byte) []byte {
-				h := sha512.Sum512(b)
-				return h[:]
-			},
-		}
-	}
-}
-
-func (r *notaryRepo) root(opts ...func() interface{}) (*Root, error) {
-	roleVal := roleRoot
+func (r *notaryRepo) root(opts ...repoOption) (*Root, error) {
+	var optVal repoOptions
 	for _, opt := range opts {
-		switch t := opt().(type) {
-		case roleVersion:
-			roleVal = role(fmt.Sprintf("%d.%s", t, roleRoot))
-		}
+		opt(&optVal)
+	}
+	roleVal := roleRoot
+	if optVal.rootOptions.version > 0 {
+		roleVal = role(fmt.Sprintf("%d.%s", optVal.rootOptions.version, roleRoot))
 	}
 	var root Root
 	err := r.getRole(roleVal, &root)
@@ -220,8 +178,8 @@ func (r *notaryRepo) root(opts ...func() interface{}) (*Root, error) {
 	return &root, nil
 }
 
-func (r *notaryRepo) targets(rdr roleFetcher, opts ...func() interface{}) (*RootTarget, error) {
-	rootTarget, err := targetTreeBuilder(rdr)
+func (r *notaryRepo) targets(fetcher roleFetcher, opts ...repoOption) (*RootTarget, error) {
+	rootTarget, err := targetTreeBuilder(fetcher)
 	if err != nil {
 		return nil, errors.Wrap(err, "getting remote target role")
 	}
@@ -237,7 +195,7 @@ func (r *notaryRepo) timestamp() (*Timestamp, error) {
 	return &timestamp, nil
 }
 
-func (r *notaryRepo) snapshot(opts ...func() interface{}) (*Snapshot, error) {
+func (r *notaryRepo) snapshot(opts ...repoOption) (*Snapshot, error) {
 	var snapshot Snapshot
 	err := r.getRole(roleSnapshot, &snapshot, opts...)
 	if err != nil {
@@ -277,30 +235,32 @@ func (r *notaryRepo) buildRoleURL(roleName role) (string, error) {
 	return r.url.ResolveReference(path).String(), nil
 }
 
-func (r *notaryRepo) getRole(roleName role, role interface{}, opts ...func() interface{}) error {
+func (r *notaryRepo) getRole(roleName role, role interface{}, opts ...repoOption) error {
 	maxResponseSize := r.maxResponseSize
 	var testers []tester
+	var optVal repoOptions
 	for _, opt := range opts {
-		switch t := opt().(type) {
-		case expectedSizeType:
-			maxResponseSize = int64(t)
-		case tester:
-			testers = append(testers, t)
-		}
+		opt(&optVal)
+	}
+	if optVal.roleOptions.expectedLength > 0 {
+		maxResponseSize = optVal.roleOptions.expectedLength
+	}
+	if len(optVal.roleOptions.tests) > 0 {
+		testers = optVal.roleOptions.tests
 	}
 	roleURL, err := r.buildRoleURL(roleName)
 	if err != nil {
 		return errors.Wrap(err, "getting remote role")
 	}
-
+	q.Q("max size >> ", maxResponseSize)
 	resp, err := r.client.Get(roleURL)
 	if err != nil {
 		return errors.Wrap(err, "fetching role from remote repo")
 	}
 	defer resp.Body.Close()
-	// clients must limit read sizes per tuf spec
-	limitedReader := &io.LimitedReader{R: resp.Body, N: maxResponseSize + 1}
-
+	// Read up to a number of bytes. The can be specified from the previous role,
+	// or in the case of root no more than defaultMaxResponseSize
+	limitedReader := io.LimitReader(resp.Body, maxResponseSize)
 	if resp.StatusCode != http.StatusOK {
 		// It's legitimate not to find roles in some circumstances
 		if resp.StatusCode == http.StatusNotFound {
@@ -309,12 +269,9 @@ func (r *notaryRepo) getRole(roleName role, role interface{}, opts ...func() int
 		return errors.Wrap(err, "notary server error")
 	}
 	var buff bytes.Buffer
-	read, err := io.Copy(&buff, limitedReader)
+	_, err = io.Copy(&buff, limitedReader)
 	if err != nil {
 		return errors.Wrap(err, "reading response from notary")
-	}
-	if read > maxResponseSize {
-		return errors.New("remote response size exceeds expected")
 	}
 	for _, ts := range testers {
 		err = ts.test(buff.Bytes())

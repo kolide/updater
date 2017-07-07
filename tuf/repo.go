@@ -21,10 +21,44 @@ const (
 	maxDelegationCount = 50
 )
 
+type rootOptions struct {
+	version int
+}
+
+type roleOptions struct {
+	expectedLength int64
+	tests          []tester
+}
+
+type repoOptions struct {
+	rootOptions
+	roleOptions
+}
+
+func withRootVersion(version int) repoOption {
+	return func(opts *repoOptions) {
+		opts.rootOptions.version = version
+	}
+}
+
+func withRoleExpectedLength(len int64) repoOption {
+	return func(opts *repoOptions) {
+		opts.roleOptions.expectedLength = len
+	}
+}
+
+func withRoleTest(t tester) repoOption {
+	return func(opts *repoOptions) {
+		opts.roleOptions.tests = append(opts.roleOptions.tests, t)
+	}
+}
+
+type repoOption func(*repoOptions)
+
 type repo interface {
-	root(opts ...func() interface{}) (*Root, error)
-	snapshot(opts ...func() interface{}) (*Snapshot, error)
-	targets(rdr roleFetcher, opts ...func() interface{}) (*RootTarget, error)
+	root(opts ...repoOption) (*Root, error)
+	snapshot(opts ...repoOption) (*Snapshot, error)
+	targets(rdr roleFetcher, opts ...repoOption) (*RootTarget, error)
 	timestamp() (*Timestamp, error)
 }
 
