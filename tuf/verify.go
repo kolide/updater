@@ -1,12 +1,10 @@
 package tuf
 
 import (
-	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/sha256"
 	"crypto/x509"
-	"encoding/base64"
 	"encoding/pem"
 	"math/big"
 
@@ -82,24 +80,6 @@ func (sm *signingMethodECDSA) verify(signed []byte, key *Key, sig *Signature) er
 	digest := sha256.Sum256(signed)
 	if !ecdsa.Verify(ecdsaPublicKey, digest[:], r, s) {
 		return errSignatureCheckFailed
-	}
-
-	return nil
-}
-
-type hashTester struct {
-	encodedHash string
-	hasher      func([]byte) []byte
-}
-
-func (c *hashTester) test(b []byte) error {
-	hash, err := base64.StdEncoding.DecodeString(c.encodedHash)
-	if err != nil {
-		return errors.Wrap(err, "decoding base64 file integrity check")
-	}
-	match := bytes.Equal(c.hasher(b), hash)
-	if !match {
-		return errHashMismatch
 	}
 	return nil
 }

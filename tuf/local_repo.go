@@ -26,7 +26,7 @@ func (rdr *localTargetFetcher) fetch(role string) (*Targets, error) {
 	return &result, nil
 }
 
-func (r *localRepo) root(opts ...func() interface{}) (*Root, error) {
+func (r *localRepo) root(opts ...repoOption) (*Root, error) {
 	var root Root
 	err := r.getRole(roleRoot, &root)
 	if err != nil {
@@ -44,7 +44,7 @@ func (r *localRepo) timestamp() (*Timestamp, error) {
 	return &ts, nil
 }
 
-func (r *localRepo) snapshot(opts ...func() interface{}) (*Snapshot, error) {
+func (r *localRepo) snapshot(opts ...repoOption) (*Snapshot, error) {
 	var ss Snapshot
 	err := r.getRole(roleSnapshot, &ss)
 	if err != nil {
@@ -53,8 +53,8 @@ func (r *localRepo) snapshot(opts ...func() interface{}) (*Snapshot, error) {
 	return &ss, nil
 }
 
-func (r *localRepo) targets(rdr roleFetcher, opts ...func() interface{}) (*RootTarget, error) {
-	rootTarget, err := targetTreeBuilder(rdr)
+func (r *localRepo) targets(fetcher roleFetcher) (*RootTarget, error) {
+	rootTarget, err := targetTreeBuilder(fetcher)
 	if err != nil {
 		return nil, errors.Wrap(err, "getting local targets role")
 	}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"crypto/sha512"
+	"crypto/subtle"
 	"encoding/base64"
 	"hash"
 	"io"
@@ -225,6 +226,7 @@ func (f FileIntegrityMeta) clone() *FileIntegrityMeta {
 	return &FileIntegrityMeta{h, f.Length}
 }
 
+// Equal is deep comparison of two FileIntegrityMeta
 func (f FileIntegrityMeta) Equal(fim FileIntegrityMeta) bool {
 	if f.Length != fim.Length {
 		return false
@@ -247,6 +249,26 @@ func (f FileIntegrityMeta) Equal(fim FileIntegrityMeta) bool {
 type hashInfo struct {
 	h     hash.Hash
 	valid []byte
+}
+
+func newHashInfo(algoType hashingMethod, expected []byte) (*hashInfo, error) {
+	h, err := getHasher(algoType)
+	if err != nil {
+		return nil, err
+	}
+	return &hashInfo{h, expected}, nil
+}
+
+func (hi *hashInfo) test(b []byte) error {
+	var decoded bytes.Buffer
+	decoder := base64.NewDecoder(base64.StdEncoding, bytes.NewBuffer(hi.valid))
+	io.Copy(&decoded, decoder)
+	io.Copy(hi.h, bytes.NewBuffer(b))
+	hash := hi.h.Sum(nil)
+	if subtle.ConstantTimeCompare(hash, decoded.Bytes()) != 1 {
+		return errHashIncorrect
+	}
+	return nil
 }
 
 func getHasher(algoType hashingMethod) (hash.Hash, error) {
@@ -286,7 +308,7 @@ func (fim FileIntegrityMeta) verify(rdr io.Reader) error {
 		return errLengthIncorrect
 	}
 	for _, h := range hashes {
-		if !bytes.Equal(h.valid, h.h.Sum(nil)) {
+		if subtle.ConstantTimeCompare(h.valid, h.h.Sum(nil)) != 1 {
 			return errHashIncorrect
 		}
 	}

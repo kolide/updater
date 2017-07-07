@@ -103,24 +103,15 @@ func TestHashTesters(t *testing.T) {
 
 	ssMeta, ok := ts.Signed.Meta[roleSnapshot]
 	require.True(t, ok)
-	sha256Hash, ok := ssMeta.Hashes[hashSHA256]
-	require.True(t, ok)
-	sha512Hash, ok := ssMeta.Hashes[hashSHA512]
-	require.True(t, ok)
 
-	tf := func(opts ...func() interface{}) {
-		numTests := 0
-		for _, opt := range opts {
-			switch tt := opt().(type) {
-			case tester:
-				err := tt.test(snapshot)
-				assert.Nil(t, err)
-				numTests++
-			}
-		}
-		assert.Equal(t, 2, numTests)
+	for algo, expected := range ssMeta.Hashes {
+		t.Run(string(algo), func(t *testing.T) {
+			hi, err := newHashInfo(algo, []byte(expected))
+			require.Nil(t, err)
+			require.NotNil(t, hi)
+			assert.Implements(t, (*tester)(nil), hi)
+			assert.Nil(t, hi.test(snapshot))
+		})
 	}
-
-	tf(testSHA256(sha256Hash), testSHA512(sha512Hash))
 
 }

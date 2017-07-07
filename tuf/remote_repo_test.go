@@ -41,7 +41,6 @@ func TestBuildRoleURL(t *testing.T) {
 
 	for _, v := range tt {
 		actual, err := r.buildRoleURL(v.testRole)
-
 		if v.valid {
 			assert.Nil(t, err)
 			assert.Equal(t, v.expected, actual)
@@ -49,9 +48,7 @@ func TestBuildRoleURL(t *testing.T) {
 			assert.NotNil(t, err)
 			assert.EqualError(t, err, v.errText)
 		}
-
 	}
-
 }
 
 func TestGetRemoteRole(t *testing.T) {
@@ -111,7 +108,6 @@ func TestGetRemoteRole(t *testing.T) {
 
 func TestTheReadSizeLimitsAreEnforced(t *testing.T) {
 	svr := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
 		buff, err := test.Asset("test/data/snapshot.json")
 		require.Nil(t, err)
 		w.Write(buff)
@@ -131,13 +127,13 @@ func TestTheReadSizeLimitsAreEnforced(t *testing.T) {
 			},
 		},
 	}
-	// it should fail if the expected size is smaller the remote response
-	_, err := r.snapshot(expectedSize(902))
+	// it should fail if the expected size is smaller than the remote response
+	_, err := r.snapshot(withRoleExpectedLength(901))
 	require.NotNil(t, err)
-	assert.EqualError(t, err, "remote response size exceeds expected")
+	assert.EqualError(t, err, "parsing json returned from server: unexpected EOF")
 	// it should succeed if the expected size is the same as the actual size of
 	// the remote response
-	_, err = r.snapshot(expectedSize(903))
+	_, err = r.snapshot(withRoleExpectedLength(903))
 	require.Nil(t, err)
 
 }
@@ -165,7 +161,7 @@ func TestGetVersionRoot(t *testing.T) {
 		},
 	}
 
-	root, err := r.root(version(1))
+	root, err := r.root(withRootVersion(1))
 	require.Nil(t, err)
 	require.NotNil(t, root)
 
