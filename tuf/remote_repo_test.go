@@ -41,7 +41,6 @@ func TestBuildRoleURL(t *testing.T) {
 
 	for _, v := range tt {
 		actual, err := r.buildRoleURL(v.testRole)
-
 		if v.valid {
 			assert.Nil(t, err)
 			assert.Equal(t, v.expected, actual)
@@ -49,9 +48,7 @@ func TestBuildRoleURL(t *testing.T) {
 			assert.NotNil(t, err)
 			assert.EqualError(t, err, v.errText)
 		}
-
 	}
-
 }
 
 func TestGetRemoteRole(t *testing.T) {
@@ -111,7 +108,6 @@ func TestGetRemoteRole(t *testing.T) {
 
 func TestTheReadSizeLimitsAreEnforced(t *testing.T) {
 	svr := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-
 		buff, err := test.Asset("test/data/snapshot.json")
 		require.Nil(t, err)
 		w.Write(buff)

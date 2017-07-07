@@ -369,20 +369,6 @@ func (rs *repoMan) refreshTargets(root *Root, snapshot *Snapshot) (*RootTarget, 
 	// number of this metadata file MUST match the snapshot metadata. This is
 	// done, in part, to prevent a mix-and-match attack by man-in-the-middle
 	// attackers.
-	// fim, ok := snapshot.Signed.Meta[roleTargets]
-	// if !ok {
-	// 	return nil, nil, errors.New("missing target metadata in snapshot")
-	// }
-	// var opts []func() interface{}
-	// opts = append(opts, expectedSize(fim.Length))
-	// hash, ok := fim.Hashes[hashSHA256]
-	// if ok {
-	// 	opts = append(opts, testSHA256(hash))
-	// }
-	// hash, ok = fim.Hashes[hashSHA512]
-	// if ok {
-	// 	opts = append(opts, testSHA512(hash))
-	// }
 	previous, err := rs.repo.targets(&localTargetFetcher{rs.repo.baseDir()})
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "fetching local targets")

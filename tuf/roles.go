@@ -226,6 +226,7 @@ func (f FileIntegrityMeta) clone() *FileIntegrityMeta {
 	return &FileIntegrityMeta{h, f.Length}
 }
 
+// Equal is deep comparison of two FileIntegrityMeta
 func (f FileIntegrityMeta) Equal(fim FileIntegrityMeta) bool {
 	if f.Length != fim.Length {
 		return false

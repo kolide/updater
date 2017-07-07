@@ -21,6 +21,10 @@ const (
 	maxDelegationCount = 50
 )
 
+type tester interface {
+	test([]byte) error
+}
+
 type rootOptions struct {
 	version int
 }
@@ -58,7 +62,7 @@ type repoOption func(*repoOptions)
 type repo interface {
 	root(opts ...repoOption) (*Root, error)
 	snapshot(opts ...repoOption) (*Snapshot, error)
-	targets(rdr roleFetcher, opts ...repoOption) (*RootTarget, error)
+	targets(rdr roleFetcher) (*RootTarget, error)
 	timestamp() (*Timestamp, error)
 }
 

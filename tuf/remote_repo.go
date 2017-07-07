@@ -10,7 +10,6 @@ import (
 
 	"github.com/WatchBeam/clock"
 	"github.com/pkg/errors"
-	"github.com/y0ssar1an/q"
 )
 
 type notaryTargetFetcherSettings struct {
@@ -157,10 +156,6 @@ func (rdr *notaryTargetFetcher) saveKeysForRoles(target *Targets) {
 	}
 }
 
-type tester interface {
-	test([]byte) error
-}
-
 func (r *notaryRepo) root(opts ...repoOption) (*Root, error) {
 	var optVal repoOptions
 	for _, opt := range opts {
@@ -178,7 +173,7 @@ func (r *notaryRepo) root(opts ...repoOption) (*Root, error) {
 	return &root, nil
 }
 
-func (r *notaryRepo) targets(fetcher roleFetcher, opts ...repoOption) (*RootTarget, error) {
+func (r *notaryRepo) targets(fetcher roleFetcher) (*RootTarget, error) {
 	rootTarget, err := targetTreeBuilder(fetcher)
 	if err != nil {
 		return nil, errors.Wrap(err, "getting remote target role")
@@ -252,7 +247,6 @@ func (r *notaryRepo) getRole(roleName role, role interface{}, opts ...repoOption
 	if err != nil {
 		return errors.Wrap(err, "getting remote role")
 	}
-	q.Q("max size >> ", maxResponseSize)
 	resp, err := r.client.Get(roleURL)
 	if err != nil {
 		return errors.Wrap(err, "fetching role from remote repo")
