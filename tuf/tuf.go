@@ -488,6 +488,9 @@ func (rs *repoMan) getLocalTargets() FimMap {
 	rs.actionc <- func() {
 		if rs.targets != nil {
 			files <- rs.targets.paths.clone()
+		} else {
+			// if targets is not present return empty FimMap so we're not blocked forever
+			files <- make(FimMap)
 		}
 	}
 	return <-files
