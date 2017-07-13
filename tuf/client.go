@@ -152,7 +152,7 @@ func (c *Client) Download(targetName string, destination io.Writer) error {
 // Note that the returned fim is always non-null.  In case of error an 'empty'
 // fim will be returned that will never be equal to a fim that refers to a real file.
 func (c *Client) getCurrentFileInfo(watched string) (*FileIntegrityMeta, error) {
-	emptyFim := newFileItegrityMeta()
+	emptyFim := newFileIntegrityMeta()
 	// get current file state from local repository
 	var local localRepo
 	currentTargets, err := local.targets(&localTargetFetcher{c.manager.settings.LocalRepoPath})
@@ -168,7 +168,7 @@ func (c *Client) getCurrentFileInfo(watched string) (*FileIntegrityMeta, error) 
 
 func (c *Client) monitorTarget() {
 	var err error
-	old := newFileItegrityMeta()
+	old := newFileIntegrityMeta()
 	ticker := c.clock.NewTicker(c.checkFrequency).Chan()
 	for {
 		// Get the state of our current files from the local repo

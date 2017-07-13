@@ -212,7 +212,7 @@ type FileIntegrityMeta struct {
 	Length int64                    `json:"length"`
 }
 
-func newFileItegrityMeta() *FileIntegrityMeta {
+func newFileIntegrityMeta() *FileIntegrityMeta {
 	return &FileIntegrityMeta{
 		Hashes: make(map[hashingMethod]string),
 	}
