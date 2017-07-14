@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/WatchBeam/clock"
@@ -13,21 +14,22 @@ import (
 
 // Client is a TUF client.
 type Client struct {
-	// Client wraps the private repoMan type which contains the actual
-	// methods for working with TUF repositories. In the future it might
-	// be worthwile to export the repoMan type as Client instead, but
-	// wrapping it reduces the amount of present refactoring work.
-	manager *repoMan
 	// values to autoupdate
 	checkFrequency      time.Duration
 	backupFileAge       time.Duration
 	watchedTarget       string
 	stagingPath         string
 	notificationHandler NotificationHandler
-	quit                chan chan struct{}
+	quit                chan struct{}
 	clock               clock.Clock
 	client              *http.Client
 	maxResponseSize     int64
+	jobs                chan func(*repoMan)
+	wait                sync.WaitGroup
+	// Default true, if true, and autoupdate is enabled check for updates on startup
+	// instead of waiting until check interval has elapsed.
+	loadOnStart     bool
+	forceAutoUpdate chan struct{}
 }
 
 const (
@@ -95,8 +97,11 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 		client:          defaultHttpClient(),
 		checkFrequency:  defaultCheckFrequency,
 		backupFileAge:   defaultBackupAge,
-		quit:            make(chan chan struct{}),
+		quit:            make(chan struct{}),
 		clock:           &clock.DefaultClock{},
+		jobs:            make(chan func(*repoMan)),
+		loadOnStart:     true,
+		forceAutoUpdate: make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(&client)
@@ -113,13 +118,31 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 	if err != nil {
 		return nil, errors.New("creating local tuf role repo")
 	}
-	client.manager = newRepoMan(localRepo, notary, settings, notary.client, client.backupFileAge, client.clock)
+	rm := newRepoMan(localRepo, notary, settings, notary.client, client.backupFileAge, client.clock)
+	var autoupdate *autoupdater
 	if client.watchedTarget != "" {
 		if client.notificationHandler == nil {
 			return nil, errors.New("notification handler required for autoupdate")
 		}
-		go client.monitorTarget()
+		autoupdate = newAutoupdater(&client)
 	}
+	ticker := client.clock.NewTicker(client.checkFrequency).Chan()
+	client.wait.Add(1)
+	go workerLoop(
+		ticker,
+		client.quit,
+		client.jobs,
+		&client.wait,
+		rm,
+		client.forceAutoUpdate,
+		autoupdate,
+	)
+	// This will force autoupdate to run as soon as we start instead of waiting
+	// until checkFrequency has elapsed.
+	if client.loadOnStart {
+		client.forceAutoUpdate <- struct{}{}
+	}
+
 	return &client, nil
 }
 
@@ -132,106 +155,141 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 // not supported because for our purposes, both are unnecessary.
 // See https://github.com/theupdateframework/tuf/blob/904fa9b8df8ab8c632a210a2b05fd741e366788a/docs/tuf-spec.txt
 func (c *Client) Update() (files FimMap, latest bool, err error) {
-	latest, err = c.manager.refresh()
-	if err != nil {
-		return nil, false, errors.Wrap(err, "refreshing state")
+	type resultUpdate struct {
+		files  FimMap
+		latest bool
+		err    error
 	}
-	files = c.manager.getLocalTargets()
-	return files, latest, nil
+	resultC := make(chan resultUpdate)
+	c.jobs <- func(rm *repoMan) {
+
+		latest, err := rm.refresh()
+		if err != nil {
+			resultC <- resultUpdate{nil, false, err}
+			return
+		}
+		if rm.targets == nil {
+			resultC <- resultUpdate{nil, false, errors.New("root target not present")}
+			return
+		}
+		resultC <- resultUpdate{rm.targets.paths.clone(), latest, nil}
+
+	}
+	result := <-resultC
+	return result.files, result.latest, result.err
 }
 
 // Download downloads a local resource from a remote URL.
 // Download will use local TUF metadata, so it's important to call Update before dowloading a new file.
 func (c *Client) Download(targetName string, destination io.Writer) error {
-	if err := c.manager.downloadTarget(targetName, destination); err != nil {
-		return errors.Wrap(err, "downloading target")
+	resultC := make(chan error)
+	c.jobs <- func(rm *repoMan) {
+
+		resultC <- rm.downloadTarget(targetName, destination)
+
 	}
-	return nil
+	return <-resultC
 }
 
-// Note that the returned fim is always non-null.  In case of error an 'empty'
-// fim will be returned that will never be equal to a fim that refers to a real file.
-func (c *Client) getCurrentFileInfo(watched string) (*FileIntegrityMeta, error) {
-	emptyFim := newFileIntegrityMeta()
-	// get current file state from local repository
-	var local localRepo
-	currentTargets, err := local.targets(&localTargetFetcher{c.manager.settings.LocalRepoPath})
+type autoupdater struct {
+	watchedTarget string
+	stagingPath   string
+	notifier      NotificationHandler
+	currentFim    FileIntegrityMeta
+}
+
+func newAutoupdater(client *Client) *autoupdater {
+	return &autoupdater{
+		watchedTarget: client.watchedTarget,
+		stagingPath:   client.stagingPath,
+		notifier:      client.notificationHandler,
+		currentFim: FileIntegrityMeta{
+			Hashes: make(map[hashingMethod]string),
+		},
+	}
+}
+
+func (au *autoupdater) update(rm *repoMan) {
+	_, err := rm.refresh()
 	if err != nil {
-		return emptyFim, errors.Wrap(err, "getting local targets")
+		au.notifier("", errors.Wrap(err, "calling update"))
+		return
 	}
-	fim, ok := currentTargets.paths[watched]
-	if !ok {
-		return emptyFim, errors.Errorf("no such target %q", watched)
+	if rm.targets == nil {
+		au.notifier("", errors.New("expected root target missing in update"))
+		return
 	}
-	return &fim, nil
+	if newFim, ok := rm.targets.paths[au.watchedTarget]; ok {
+		if !newFim.Equal(au.currentFim) {
+			if err := downloadAndNotify(rm, au.watchedTarget, au.stagingPath, au.notifier); err != nil {
+				return
+			}
+			au.currentFim = newFim
+		}
+	}
 }
 
-func (c *Client) monitorTarget() {
-	var err error
-	old := newFileIntegrityMeta()
-	ticker := c.clock.NewTicker(c.checkFrequency).Chan()
+// workerLoop is the only method that has a reference to the tuf repository manager. It will
+// run as a seperate goroutine. Operations that interact with the tuf repository
+// will be executed in the sequence that jobs are recieved.
+func workerLoop(
+	ticker <-chan time.Time,
+	quit <-chan struct{},
+	jobs <-chan func(*repoMan),
+	wait *sync.WaitGroup,
+	rm *repoMan,
+	forceAutoUpdate <-chan struct{},
+	autoupdate *autoupdater,
+) {
+	defer wait.Done()
 	for {
-		// Get the state of our current files from the local repo
-		if old.Length == 0 {
-			old, err = c.getCurrentFileInfo(c.watchedTarget)
-			if err != nil {
-				c.notificationHandler("", err)
-			}
-		}
-		files, _, err := c.Update()
-		if err != nil {
-			c.notificationHandler("", err)
-		}
-		current, ok := files[c.watchedTarget]
-		if ok {
-			c.downloadIfNew(old, &current)
-			old = &current
-		} else {
-			c.notificationHandler("", errors.Errorf("no such target %q", c.watchedTarget))
-		}
 		select {
+		case job := <-jobs:
+			job(rm)
 		case <-ticker:
-		case quit := <-c.quit:
-			close(quit)
+			if autoupdate != nil {
+				autoupdate.update(rm)
+			}
+		case <-forceAutoUpdate:
+			if autoupdate != nil {
+				autoupdate.update(rm)
+			}
+		case <-quit:
 			return
 		}
 	}
 }
 
-func (c *Client) downloadIfNew(old, current *FileIntegrityMeta) {
-	if old.Equal(*current) {
-		return
-	}
-	dpath := filepath.Join(c.stagingPath, c.watchedTarget)
+func downloadAndNotify(rm *repoMan, watchedTarget, stagingPath string, cb NotificationHandler) error {
+	dpath := filepath.Join(stagingPath, watchedTarget)
 	if err := os.MkdirAll(filepath.Dir(dpath), 0755); err != nil {
-		c.notificationHandler("", err)
-		return
+		cb("", err)
+		return err
 	}
 	destination, err := os.Create(dpath)
 	if err != nil {
-		c.notificationHandler("", err)
-		return
+		cb("", err)
+		return err
 	}
-	if err := c.Download(c.watchedTarget, destination); err != nil {
+	if err := rm.downloadTarget(watchedTarget, destination); err != nil {
 		destination.Close()
 		os.Remove(dpath)
-		c.notificationHandler("", err)
-	} else {
-		// the file descriptor must be closed in order to allow the
-		// notificationHandler to work with the file in the staging path.
-		destination.Close()
-		c.notificationHandler(dpath, nil)
+		cb("", err)
+		return err
 	}
+	// the file descriptor must be closed in order to allow the
+	// notificationHandler to work with the file in the staging path.
+	destination.Close()
+	cb(dpath, nil)
+	return nil
 }
 
+// Stop must be called when done with the updater.
 func (c *Client) Stop() {
-	// stop autoupdate loop
-	if c.watchedTarget != "" {
-		quit := make(chan struct{})
-		c.quit <- quit
-		<-quit
-	}
-	c.manager.Stop()
+	// cause all goroutines that have the quit channel to exit
+	close(c.quit)
+	// wait until they are all done
+	c.wait.Wait()
 }
 
 func defaultHttpClient() *http.Client {

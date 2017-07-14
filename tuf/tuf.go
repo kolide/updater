@@ -71,15 +71,7 @@ type repoMan struct {
 	targets   *RootTarget
 	client    *http.Client
 	clock     clock.Clock
-	actionc   chan func()
-	quit      chan chan struct{}
 	backupAge time.Duration
-}
-
-func (rs *repoMan) Stop() {
-	quit := make(chan struct{})
-	rs.quit <- quit
-	<-quit
 }
 
 func (rs *repoMan) save() error {
@@ -104,53 +96,30 @@ type refreshResponse struct {
 }
 
 func (rs *repoMan) refresh() (bool, error) {
-	errc := make(chan refreshResponse)
-
-	rs.actionc <- func() {
-		root, err := rs.refreshRoot()
-		if err != nil {
-			errc <- refreshResponse{false, errors.Wrap(err, "refreshing root")}
-			return
-		}
-		rs.root = root
-		timestamp, err := rs.refreshTimestamp(root)
-		if err != nil {
-			errc <- refreshResponse{false, errors.Wrap(err, "refreshing timestamp")}
-			return
-		}
-		rs.timestamp = timestamp
-		snapshot, err := rs.refreshSnapshot(root, timestamp)
-		if err != nil {
-			errc <- refreshResponse{false, errors.Wrap(err, "refreshing snapshot")}
-			return
-		}
-		rs.snapshot = snapshot
-		targets, changed, err := rs.refreshTargets(root, snapshot)
-		if err != nil {
-			errc <- refreshResponse{false, errors.Wrap(err, "refreshing targets")}
-			return
-		}
-		rs.targets = targets
-		if err := rs.save(); err != nil {
-			errc <- refreshResponse{false, errors.Wrap(err, "saving new tuf repo")}
-			return
-		}
-		errc <- refreshResponse{len(changed) == 0, nil}
+	root, err := rs.refreshRoot()
+	if err != nil {
+		return false, errors.Wrap(err, "refreshing root")
 	}
-	rr := <-errc
-	return rr.latest, rr.err
-}
-
-func (rs *repoMan) loop() {
-	for {
-		select {
-		case f := <-rs.actionc:
-			f()
-		case quit := <-rs.quit:
-			close(quit)
-			return
-		}
+	rs.root = root
+	timestamp, err := rs.refreshTimestamp(root)
+	if err != nil {
+		return false, errors.Wrap(err, "refreshing timestamp")
 	}
+	rs.timestamp = timestamp
+	snapshot, err := rs.refreshSnapshot(root, timestamp)
+	if err != nil {
+		return false, errors.Wrap(err, "refreshing snapshot")
+	}
+	rs.snapshot = snapshot
+	targets, changed, err := rs.refreshTargets(root, snapshot)
+	if err != nil {
+		return false, errors.Wrap(err, "refreshing targets")
+	}
+	rs.targets = targets
+	if err := rs.save(); err != nil {
+		return false, errors.Wrap(err, "saving new tuf repo")
+	}
+	return len(changed) == 0, nil
 }
 
 func newRepoMan(repo persistentRepo, notary remoteRepo, settings *Settings, client *http.Client, backupAge time.Duration, k clock.Clock) *repoMan {
@@ -161,10 +130,7 @@ func newRepoMan(repo persistentRepo, notary remoteRepo, settings *Settings, clie
 		client:    client,
 		clock:     k,
 		backupAge: backupAge,
-		actionc:   make(chan func()),
-		quit:      make(chan chan struct{}),
 	}
-	go man.loop()
 	return man
 }
 
@@ -481,19 +447,6 @@ func (rs *repoMan) downloadTarget(target string, destination io.Writer) error {
 		return errors.Wrap(err, "verifying current target download")
 	}
 	return nil
-}
-
-func (rs *repoMan) getLocalTargets() FimMap {
-	files := make(chan FimMap)
-	rs.actionc <- func() {
-		if rs.targets != nil {
-			files <- rs.targets.paths.clone()
-		} else {
-			// if targets is not present return empty FimMap so we're not blocked forever
-			files <- make(FimMap)
-		}
-	}
-	return <-files
 }
 
 func verifySignatures(role marshaller, keys map[keyID]Key, sigs []Signature, threshold int) error {

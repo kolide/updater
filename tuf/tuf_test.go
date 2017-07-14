@@ -21,12 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func withClock(mc clock.Clock) Option {
-	return func(c *Client) {
-		c.clock = mc
-	}
-}
-
 func TestURLValidation(t *testing.T) {
 	settings := &Settings{
 		NotaryURL: "https://foo.com/zip.json",
