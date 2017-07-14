@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,7 +15,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -167,7 +167,9 @@ func existingPathChanged(t *testing.T, settings *Settings, c *http.Client, stage
 	out.Close()
 	fi, err := os.Stat(download)
 	require.Nil(t, err)
-	fim, ok := client.manager.targets.paths["edge/target"]
+	fims, err = client.getFIMMap()
+	require.Nil(t, err)
+	fim, ok := fims["edge/target"]
 	require.True(t, ok)
 	assert.Equal(t, fi.Size(), fim.Length)
 }
@@ -194,34 +196,104 @@ func nonprecedentPathChange(t *testing.T, settings *Settings, c *http.Client, st
 
 func autoupdateDetectedChange(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
 	var (
-		called    bool
-		path      string
-		updateErr error
-		lock      sync.Mutex
+		path  string
+		cberr error
 	)
+
 	onUpdate := func(stagingPath string, err error) {
-		lock.Lock()
-		defer lock.Unlock()
-		called = true
 		path = stagingPath
-		updateErr = err
+		cberr = err
 	}
+
 	client, err := NewClient(
 		settings, WithHTTPClient(c),
 		withClock(k),
 		WithAutoUpdate("edge/target", stageDir, onUpdate),
 	)
 	require.Nil(t, err)
-	// we have to wait to few moments for the delegate to get called
-	time.Sleep(200 * time.Millisecond)
-	defer client.Stop()
-	lock.Lock()
-	defer lock.Unlock()
-	require.True(t, called)
+	client.Stop()
+
+	// there should be no problems with concurrent access here because both
+	// goroutines should be shut down
 	assert.Regexp(t, regexp.MustCompile("/edge/target$"), path)
-	assert.Nil(t, updateErr)
+	assert.Nil(t, cberr)
 	_, err = os.Stat(path)
 	assert.Nil(t, err)
+
+}
+
+func autoupdateDetectedChangeAfterInterval(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
+	var (
+		path   string
+		cbErr  error
+		called bool
+	)
+
+	onUpdate := func(stagingPath string, e error) {
+		called = true
+		path = stagingPath
+		cbErr = e
+	}
+
+	client, err := NewClient(
+		settings, WithHTTPClient(c),
+		withClock(k),
+		loadOnStart(false),
+		WithAutoUpdate("edge/target", stageDir, onUpdate),
+	)
+	require.Nil(t, err)
+	client.Stop()
+	// verify that it didn't run
+	assert.False(t, called)
+
+	client, err = NewClient(
+		settings, WithHTTPClient(c),
+		withClock(k),
+		loadOnStart(false),
+		WithAutoUpdate("edge/target", stageDir, onUpdate),
+	)
+	require.Nil(t, err)
+	// advance clock
+	k.AddTime(defaultCheckFrequency + time.Second)
+	// we need to pause to let delegate finish
+	time.Sleep(10 * time.Millisecond)
+	client.Stop()
+	require.True(t, called)
+	//The callback was invoked and proper file was downloaded
+	assert.Regexp(t, regexp.MustCompile("/edge/target$"), path)
+	assert.Nil(t, cbErr)
+	_, err = os.Stat(path)
+	assert.Nil(t, err)
+}
+
+// Test that auto update and explicit update/download calls can occur simultaneously and also give the race
+// detector something to chew on.
+func interleavedOperations(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
+	gen := rand.New(rand.NewSource(time.Now().UnixNano()))
+	onUpdate := func(gen *rand.Rand) func(stagingPath string, e error) {
+		wait := gen.Int() % 1000
+		return func(s string, e error) {
+			time.Sleep(time.Duration(wait) * time.Microsecond)
+		}
+	}
+
+	for i := 0; i < 20; i++ {
+		client, err := NewClient(
+			settings, WithHTTPClient(c),
+			withClock(k),
+			WithFrequency(time.Duration((gen.Int()%500))*time.Microsecond),
+			WithAutoUpdate("edge/target", stageDir, onUpdate(gen)),
+		)
+		require.Nil(t, err)
+		_, _, err = client.Update()
+		require.Nil(t, err)
+		wr, err := ioutil.TempFile("", "")
+		require.Nil(t, err)
+		err = client.Download("edge/target", wr)
+		os.Remove(wr.Name())
+		assert.Nil(t, err)
+		client.Stop()
+	}
 }
 
 func wontCrashOnNilAutoupdate(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
@@ -322,6 +394,8 @@ func TestEndToEnd(t *testing.T) {
 		{"autoupdate with change", 1, 2, autoupdateDetectedChange},
 		{"lower precedent change", 2, 3, nonprecedentPathChange},
 		{"nil autoupdate func", 1, 2, wontCrashOnNilAutoupdate},
+		{"autoupdate interval works", 1, 2, autoupdateDetectedChangeAfterInterval},
+		{"interleaved operations", 1, 2, interleavedOperations},
 	}
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
