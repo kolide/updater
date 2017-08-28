@@ -2,7 +2,7 @@
 Securely handles automated software updates.
 
 The Updater validates and obtains installation packages using [TUF](https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt) and  [Notary](https://github.com/docker/notary). Note that there are some minor differences
-between Notary and TUFF so if the version of Notary is changed, this package will
+between Notary and TUF so if the version of Notary is changed, this package will
 need to be tested against the new version. The updater supports ECDSA
 to verify signatures.  This option must be defined in the [Notary Server Configuration](https://github.com/docker/notary/blob/master/docs/reference/server-config.md).
 
