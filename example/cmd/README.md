@@ -24,7 +24,7 @@ that it downloads and validates. `mkdir staging `.
 ```
 $ notary init kolide/greeter/darwin
 ```
-Notary will prompt you to create several passwords for the keys it produces. By convention the target name is of the form <version>/<file>  
+Notary will prompt you to create several passwords for the keys it produces. By convention the target name is of the form `<version>/<file>`
 
 5. Add a target to your new repository. The `-p` flag will cause the added
 target to be published immediately.
