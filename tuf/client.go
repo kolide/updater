@@ -124,7 +124,17 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 		if client.notificationHandler == nil {
 			return nil, errors.New("notification handler required for autoupdate")
 		}
-		autoupdate = newAutoupdater(&client)
+		// Initialize with file integrity info on the target we are watching from
+		// the validated local TUF repository.
+		validatedTargets, err := localRepo.targets(&localTargetFetcher{localRepo.baseDir()})
+		if err != nil {
+			return nil, errors.Wrap(err, "creating tuf client")
+		}
+		fim, ok := validatedTargets.paths[client.watchedTarget]
+		if !ok {
+			return nil, errors.Errorf("target %q does not exist", client.watchedTarget)
+		}
+		autoupdate = newAutoupdater(&client, fim)
 	}
 	ticker := client.clock.NewTicker(client.checkFrequency).Chan()
 	client.wait.Add(1)
@@ -198,14 +208,12 @@ type autoupdater struct {
 	currentFim    FileIntegrityMeta
 }
 
-func newAutoupdater(client *Client) *autoupdater {
+func newAutoupdater(client *Client, seedFIM FileIntegrityMeta) *autoupdater {
 	return &autoupdater{
 		watchedTarget: client.watchedTarget,
 		stagingPath:   client.stagingPath,
 		notifier:      client.notificationHandler,
-		currentFim: FileIntegrityMeta{
-			Hashes: make(map[hashingMethod]string),
-		},
+		currentFim:    seedFIM,
 	}
 }
 
