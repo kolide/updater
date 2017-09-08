@@ -5,21 +5,9 @@ The Updater is designed to download and install software updates from a mirror. 
 
 ## How It Works
 
-Updater uses a mirror such as Google Cloud Storage to store update targets, and uses
-[Notary](https://github.com/docker/notary) to ensure that targets have not been tampered
-with. Therefore Notary must be set up and configured in order to use Updater to keep things up to date.
+Updater uses a mirror such as Google Cloud Storage to store update targets, and uses [Notary](https://github.com/docker/notary) to ensure that targets have not been tampered with. Therefore Notary must be set up and configured in order to use Updater to keep things up to date.
 
-When the Updater is invoked it performs actions as dictated in section 5.1 of the
-[TUF Specification](https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt).
-When an application that uses Updater is released, it must be distributed with a
-copy of the current TUF repo from the Notary server.  These
-files are known as the local repository and are used to store state information about the local application
-artifacts that are managed by Updater. After a successful update has occurred, the local TUF repository is synchronized with the remote
-repository. Updater will periodically compare it's local repository with the remote
-repository hosted by Notary.  When the Notary repository has changed an update
-is trigged by the Updater, these updates either take the form of crypto key rotation
-or local file updates. See the example application included with this package for
-specific details for setting up an application to use updater.
+When the Updater is invoked it performs actions as dictated in section 5.1 of the [TUF Specification](https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt). When an application that uses Updater is released, it must be distributed with a copy of the current TUF repo from the Notary server.  These files are known as the local repository and are used to store state information about the local application artifacts that are managed by Updater. After a successful update has occurred, the local TUF repository is synchronized with the remote repository. Updater will periodically compare it's local repository with the remote repository hosted by Notary.  When the Notary repository has changed an update is trigged by the Updater, these updates either take the form of crypto key rotation or local file updates. See the example application included with this package for specific details for setting up an application to use updater.
 
 ## Notary Setup
 
@@ -116,10 +104,8 @@ Also the target and delegate keys must be imported.
 ```
 notary key import delegate-key.pem targets.pem
 ```
-Once the keys are imported and the pass phrases are available you're ready to add the new or updated target to Notary.
-Lets say for example you have uploaded a new darwin build of Wingnut to your distribution mirror and you want to update the
-`darwin/wingnut-stable.tar.gz` target in the Notary repository. The following command would publish the target to the targets/releases delegate
- so that it would be picked up and installed by Updater. Assume the path to the build artifact is `build/wingnet.tar.gz`
+Once the keys are imported and the pass phrases are available you're ready to add the new or updated target to Notary. Lets say for example you have uploaded a new darwin build of Wingnut to your distribution mirror and you want to update the
+`darwin/wingnut-stable.tar.gz` target in the Notary repository. The following command would publish the target to the targets/releases delegate so that it would be picked up and installed by Updater. Assume the path to the build artifact is `build/wingnet.tar.gz`
 ```
 notary add acme.co/wingnut darwin/wingnut-stable.tar.gz build/wingnut.tar.gz --roles targets/releases -p
 ```
