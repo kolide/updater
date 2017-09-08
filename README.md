@@ -30,8 +30,7 @@ cd notary
 make binaries
 ```
 ### Notary Server
- Notary server consists of three components, the Notary Signer, Server and a database.  Instructions on configuring and running these components can be found [here](https://github.com/docker/notary/blob/master/docs/running_a_service.md).  Updater supports ECDSA
- to verify signatures.  This option must be defined as the value of `key_algorithm` in the [Notary Server configuration](https://github.com/docker/notary/blob/master/docs/reference/server-config.md).
+ Notary server consists of three components, the Notary Signer, Server and a database.  Instructions on configuring and running these components can be found [here](https://github.com/docker/notary/blob/master/docs/running_a_service.md).  Updater supports ECDSA to verify signatures.  This option must be defined as the value of `key_algorithm` in the [Notary Server configuration](https://github.com/docker/notary/blob/master/docs/reference/server-config.md).
  ```
  {
    "trust_service": {
@@ -45,7 +44,7 @@ make binaries
  Notary Server components must be set up and running before using Notary Client to bootstrap the repository.   
 ### Bootstrapping a TUF Repository
 
-Updater requires a TUF repository to validate and detect software updates. Notary Client must be installed and be in your search path to create and manage the TUF repository. Prebuilt versions Notary Client can be found [here](https://github.com/docker/notary/releases) or it can be built from source as previously described. Notary Client must be properly configured prior to use. [Here](https://github.com/docker/notary/blob/master/docs/reference/client-config.md) are instructions for configuring the Notary Client. For the remainder of this section we'll assume we're using Updater to manage updates to fictitious software called Wingnut.  We will need to create a TUF repository to manage updated versions of Wingnut that will be hosted on a mirror.  We've previously set up Notary Server and it is available on `https://notary.wingnut.com`, and we have Notary Client installed on our local system.  First, define environment variables with good pass phrases for each Notary role.
+Updater requires a TUF repository to validate and detect software updates. Notary Client must be installed and be in your search path to create and manage the TUF repository. Prebuilt versions of Notary Client can be found [here](https://github.com/docker/notary/releases) or it can be built from source as previously described. Notary Client must be properly configured prior to use. [Here](https://github.com/docker/notary/blob/master/docs/reference/client-config.md) are instructions for configuring the Notary Client. For the remainder of this section we'll assume we're using Updater to manage updates to fictitious software called Wingnut.  We will need to create a TUF repository to manage updated versions of Wingnut that will be hosted on a mirror.  We've previously set up Notary Server and it is available on `https://notary.wingnut.com`, and we have Notary Client installed on our local system.  First, define environment variables with good pass phrases for each Notary role.
 ```
 NOTARY_DELEGATION_PASSPHRASE=<secret>
 NOTARY_ROOT_PASSPHRASE=<secret>
@@ -130,7 +129,7 @@ notary list kolide/launcher
 
 NAME               DIGEST                                                              SIZE (BYTES)    ROLE
 ----               ------                                                              ------------    ----
-darwin/launcher    3299c340c89c6602bdb6a80149554ab717db99bdcc7ae034bb69a95aeef68044    4357824         targets/releases
+acme.co/wingnut    3299c340c89c6602bdb6a80149554ab717db99bdcc7ae034bb69a95aeef68044    4357824         targets/releases
 ```
 
 ### Development
