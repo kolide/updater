@@ -125,7 +125,7 @@ notary add acme.co/wingnut darwin/wingnut-stable.tar.gz build/wingnut.tar.gz --r
 ```
 Verify the target was added.
 ```
-notary list kolide/launcher
+notary list acme.co/wingnut
 
 NAME               DIGEST                                                              SIZE (BYTES)    ROLE
 ----               ------                                                              ------------    ----
