@@ -4,6 +4,10 @@ Securely handles automated software updates.
 
 The Updater is designed to download and install software updates from a mirror. Updater ensures that downloaded files have not been altered or otherwise tampered with using [TUF](https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt) and  [Notary](https://github.com/docker/notary).
 
+## Example
+
+If you'e interested in a self-contained example application which uses this library to update itself, check out the [included example](./example/cmd/README.md). If you're interested in seeing an application which uses this library for a production use-case, look no further than the [implementation of Kolide's osquery autoupdater](https://github.com/kolide/launcher/blob/master/autoupdate/autoupdate.go).
+
 ## How It Works
 
 Updater uses a mirror such as Google Cloud Storage to store update targets, and uses [Notary](https://github.com/docker/notary) to ensure that targets have not been tampered with. Therefore Notary must be set up and configured in order to use Updater to keep things up to date.
