@@ -16,7 +16,7 @@ When the Updater is invoked it performs actions as dictated in section 5.1 of th
 
 ## Security
 
-Kolide contracted NCC Group to perform a security assessment of this library for it's compliance to the TUF specification and for any additional potential vulnerabilities. Through a partnership with NCC Group, we have made the report available for public review: [https://dl.kolide.com/doc/ncc_updater_audit.pdf](https://dl.kolide.com/doc/ncc_updater_audit.pdf).
+Kolide contracted NCC Group to perform a security assessment of this library for it's compliance to the TUF specification and for any additional potential vulnerabilities. Through a partnership with NCC Group, we have made the report [available for public review](https://www.nccgroup.trust/globalassets/our-research/us/public-reports/2017/ncc-group-kolide-the-update-framework-security-assessment.pdf).
 
 ## Development
 
