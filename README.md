@@ -14,6 +14,10 @@ Updater uses a mirror such as Google Cloud Storage to store update targets, and 
 
 When the Updater is invoked it performs actions as dictated in section 5.1 of the [TUF Specification](https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt). When an application that uses Updater is released, it must be distributed with a copy of the current TUF repo from the Notary server.  These files are known as the local repository and are used to store state information about the local application artifacts that are managed by Updater. After a successful update has occurred, the local TUF repository is synchronized with the remote repository. Updater will periodically compare it's local repository with the remote repository hosted by Notary.  When the Notary repository has changed an update is trigged by the Updater, these updates either take the form of crypto key rotation or local file updates. See the example application included with this package for specific details for setting up an application to use updater.
 
+## Security
+
+Kolide contracted NCC Group to perform a security assessment of this library for it's compliance to the TUF specification and for any additional potential vulnerabilities. Through a partnership with NCC Group, we have made the report available for public review: [https://dl.kolide.com/doc/ncc_updater_audit.pdf](https://dl.kolide.com/doc/ncc_updater_audit.pdf).
+
 ## Development
 
 To setup a working local development environment, you must install the following minimum toolset:
