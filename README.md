@@ -2,7 +2,7 @@
 
 Securely handles automated software updates.
 
-The Updater is designed to download and install software updates from a mirror. Updater ensures that downloaded files have not been altered or otherwise tampered with using [TUF](https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt) and  [Notary](https://github.com/docker/notary).
+The Updater is designed to download and install software updates from a mirror. Updater ensures that downloaded files have not been altered or otherwise tampered with using [TUF](https://github.com/theupdateframework/specification/blob/master/tuf-spec.md) and  [Notary](https://github.com/docker/notary).
 
 ## Example
 
@@ -12,7 +12,7 @@ If you'e interested in a self-contained example application which uses this libr
 
 Updater uses a mirror such as Google Cloud Storage to store update targets, and uses [Notary](https://github.com/docker/notary) to ensure that targets have not been tampered with. Therefore Notary must be set up and configured in order to use Updater to keep things up to date.
 
-When the Updater is invoked it performs actions as dictated in section 5.1 of the [TUF Specification](https://github.com/theupdateframework/tuf/blob/develop/docs/tuf-spec.txt). When an application that uses Updater is released, it must be distributed with a copy of the current TUF repo from the Notary server.  These files are known as the local repository and are used to store state information about the local application artifacts that are managed by Updater. After a successful update has occurred, the local TUF repository is synchronized with the remote repository. Updater will periodically compare it's local repository with the remote repository hosted by Notary.  When the Notary repository has changed an update is trigged by the Updater, these updates either take the form of crypto key rotation or local file updates. See the example application included with this package for specific details for setting up an application to use updater.
+When the Updater is invoked it performs actions as dictated in section 5.1 of the [TUF Specification](https://github.com/theupdateframework/specification/blob/master/tuf-spec.md). When an application that uses Updater is released, it must be distributed with a copy of the current TUF repo from the Notary server.  These files are known as the local repository and are used to store state information about the local application artifacts that are managed by Updater. After a successful update has occurred, the local TUF repository is synchronized with the remote repository. Updater will periodically compare it's local repository with the remote repository hosted by Notary.  When the Notary repository has changed an update is trigged by the Updater, these updates either take the form of crypto key rotation or local file updates. See the example application included with this package for specific details for setting up an application to use updater.
 
 ## Security
 
