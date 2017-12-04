@@ -20,18 +20,6 @@
   version = "v1.5.1-1"
 
 [[projects]]
-  branch = "master"
-  name = "github.com/kr/pretty"
-  packages = ["."]
-  revision = "cfb55aafdaf3ec08f0db22699ab822c50091b1c4"
-
-[[projects]]
-  branch = "master"
-  name = "github.com/kr/text"
-  packages = ["."]
-  revision = "7cafcd837844e784b526369c9bce262804aebc60"
-
-[[projects]]
   name = "github.com/pkg/errors"
   packages = ["."]
   revision = "645ef00459ed84a119197bfb8d8205042c6df63d"
@@ -49,15 +37,9 @@
   revision = "69483b4bd14f5845b5a1e55bca19e954e827f1d0"
   version = "v1.1.4"
 
-[[projects]]
-  name = "github.com/y0ssar1an/q"
-  packages = ["."]
-  revision = "392ac3089fcf8c70ebbe85f4c29778b7ebe27a9f"
-  version = "v1.0.2"
-
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
-  inputs-digest = "92343a785c2fcda1036248efb00707c53da6715ccc2681071686869f8c190787"
+  inputs-digest = "a095d0778066e136ad4bd651a60c0a308c5c7fde8a15739308555e0718fc4c59"
   solver-name = "gps-cdcl"
   solver-version = 1
