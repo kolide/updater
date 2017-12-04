@@ -295,13 +295,13 @@ func (rs *repoMan) refreshSnapshot(root *Root, timestamp *Timestamp) (*Snapshot,
 	if previous.Signed.Version > current.Signed.Version {
 		return nil, errRollbackAttack
 	}
+
 	// 3.3.3. The version number of the targets metadata file, and all delegated
-	// targets metadata files (if any), in the previous snapshot metadata file, if
-	// any, MUST be less than or equal to its version number in this snapshot
-	// metadata file. Furthermore, any targets metadata filename that was listed
-	// in the previous snapshot metadata file, if any, MUST continue to be listed
-	// in this snapshot metadata file.
-	targets, err := rs.repo.timestamp()
+	// targets metadata files (if any), in the trusted snapshot metadata file,
+	// if any, MUST be less than or equal to its version number in the new snapshot metadata file.
+	// Furthermore, any targets metadata filename that was listed in the trusted snapshot metadata file,
+	// if any, MUST continue to be listed in the new snapshot metadata file.
+	targets, _, err := rs.refreshTargets(root, current)
 	if err != nil {
 		return nil, errors.Wrap(err, "fetching target for snapshot validation")
 	}
