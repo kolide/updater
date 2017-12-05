@@ -311,6 +311,12 @@ func (rs *repoMan) refreshSnapshot(root *Root, timestamp *Timestamp) (*Snapshot,
 		return nil, errRollbackAttack
 	}
 
+	for role, target := range trustedTargets.targetLookup {
+		if target.Signed.Version > current.Signed.Version {
+			return nil, errors.Wrapf(errRollbackAttack, "role %s", role)
+		}
+	}
+
 	// 3.4. **Check for a freeze attack.** The latest known time should be lower
 	// than the expiration timestamp in this metadata file.
 	if rs.clock.Now().After(current.Signed.Expires) {
