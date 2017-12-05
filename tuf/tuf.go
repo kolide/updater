@@ -301,13 +301,15 @@ func (rs *repoMan) refreshSnapshot(root *Root, timestamp *Timestamp) (*Snapshot,
 	// if any, MUST be less than or equal to its version number in the new snapshot metadata file.
 	// Furthermore, any targets metadata filename that was listed in the trusted snapshot metadata file,
 	// if any, MUST continue to be listed in the new snapshot metadata file.
-	targets, _, err := rs.refreshTargets(root, current)
+	trustedTargets, err := rs.repo.targets(&localTargetFetcher{rs.repo.baseDir()})
 	if err != nil {
-		return nil, errors.Wrap(err, "fetching target for snapshot validation")
+		return nil, errors.Wrap(err, "fetching trusted targets from snapshot")
 	}
-	if targets.Signed.Version > current.Signed.Version {
+
+	if trustedTargets.Signed.Version > current.Signed.Version {
 		return nil, errRollbackAttack
 	}
+
 	// 3.4. **Check for a freeze attack.** The latest known time should be lower
 	// than the expiration timestamp in this metadata file.
 	if rs.clock.Now().After(current.Signed.Expires) {
