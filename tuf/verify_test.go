@@ -5,17 +5,15 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/kolide/updater/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // ECDSA with x5009ECDSA public key
 func TestECDSAx509Verify(t *testing.T) {
-	buff, err := test.Asset("test/data/root.json")
-	require.Nil(t, err)
+	buff := testAsset(t, "testdata/data/root.json")
 	var root Root
-	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&root)
+	err := json.NewDecoder(bytes.NewBuffer(buff)).Decode(&root)
 	require.Nil(t, err)
 	signed, err := root.Signed.canonicalJSON()
 	require.Nil(t, err)
@@ -33,10 +31,9 @@ func TestECDSAx509Verify(t *testing.T) {
 
 // ECDSA with x509ECDSA public key
 func TestECDSAx509VerifyTampered(t *testing.T) {
-	buff, err := test.Asset("test/data/root.json")
-	require.Nil(t, err)
+	buff := testAsset(t, "testdata/data/root.json")
 	var root Root
-	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&root)
+	err := json.NewDecoder(bytes.NewBuffer(buff)).Decode(&root)
 	require.Nil(t, err)
 	// tamper with object
 	role, ok := root.Signed.Roles[roleTimestamp]
@@ -59,14 +56,12 @@ func TestECDSAx509VerifyTampered(t *testing.T) {
 }
 
 func TestECDSAVerify(t *testing.T) {
-	buff, err := test.Asset("test/data/targets.json")
-	require.Nil(t, err)
+	buff := testAsset(t, "testdata/data/targets.json")
 	var targ Targets
-	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&targ)
+	err := json.NewDecoder(bytes.NewBuffer(buff)).Decode(&targ)
 	require.Nil(t, err)
 
-	buff, err = test.Asset("test/data/root.json")
-	require.Nil(t, err)
+	buff = testAsset(t, "testdata/data/root.json")
 	var root Root
 	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&root)
 	require.Nil(t, err)
@@ -92,14 +87,12 @@ func TestECDSAVerify(t *testing.T) {
 }
 
 func TestHashTesters(t *testing.T) {
-	buff, err := test.Asset("test/kolide/agent/linux/verify/timestamp.json")
-	require.Nil(t, err)
+	buff := testAsset(t, "testdata/kolide/agent/linux/verify/timestamp.json")
 	var ts Timestamp
-	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&ts)
+	err := json.NewDecoder(bytes.NewBuffer(buff)).Decode(&ts)
 	require.Nil(t, err)
 
-	snapshot, err := test.Asset("test/kolide/agent/linux/verify/snapshot.json")
-	require.Nil(t, err)
+	snapshot := testAsset(t, "testdata/kolide/agent/linux/verify/snapshot.json")
 
 	ssMeta, ok := ts.Signed.Meta[roleSnapshot]
 	require.True(t, ok)

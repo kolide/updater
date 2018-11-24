@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kolide/updater/test"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -44,13 +44,13 @@ func createMockRepo(sources []string) (string, []string, error) {
 	locations := make([]string, 0)
 	for _, source := range sources {
 		fileName := filepath.Base(source)
-		stripped := strings.Replace(source, "test/delegation/0/", "", 1)
+		stripped := strings.Replace(source, "testdata/delegation/0/", "", 1)
 		pathPart := filepath.Dir(stripped)
 		target := filepath.Join(tufDir, pathPart, fileName)
 		locations = append(locations, target)
-		buff, err := test.Asset(source)
+		buff, err := ioutil.ReadFile(source)
 		if err != nil {
-			return "", nil, err
+			return "", nil, errors.Wrap(err, "read source")
 		}
 		pathPart = filepath.Dir(target)
 		if err = checkForDirectoryPresence(pathPart); err != nil {
@@ -75,13 +75,13 @@ func createMockRepo(sources []string) (string, []string, error) {
 }
 
 var testFilePaths = []string{
-	"test/delegation/0/root.json",
-	"test/delegation/0/snapshot.json",
-	"test/delegation/0/targets/bar.json",
-	"test/delegation/0/targets/role/foo.json",
-	"test/delegation/0/targets/role.json",
-	"test/delegation/0/targets.json",
-	"test/delegation/0/timestamp.json",
+	"testdata/delegation/0/root.json",
+	"testdata/delegation/0/snapshot.json",
+	"testdata/delegation/0/targets/bar.json",
+	"testdata/delegation/0/targets/role/foo.json",
+	"testdata/delegation/0/targets/role.json",
+	"testdata/delegation/0/targets.json",
+	"testdata/delegation/0/timestamp.json",
 }
 
 func TestBackupAndRecovery(t *testing.T) {

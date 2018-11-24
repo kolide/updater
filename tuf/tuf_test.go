@@ -16,7 +16,6 @@ import (
 	"time"
 
 	"github.com/WatchBeam/clock"
-	"github.com/kolide/updater/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -68,9 +67,8 @@ func TestPathValidation(t *testing.T) {
 func createLocalRepo(version int, location string, t *testing.T) {
 	roles := []string{"root", "timestamp", "snapshot", "targets"}
 	for _, role := range roles {
-		source := fmt.Sprintf("test/kolide/agent/linux/%s.%d.json", role, version)
-		buff, err := test.Asset(source)
-		require.Nil(t, err)
+		source := fmt.Sprintf("testdata/kolide/agent/linux/%s.%d.json", role, version)
+		buff := testAsset(t, source)
 		func() {
 			target := filepath.Join(location, fmt.Sprintf("%s.json", role))
 			f, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY, 0644)
@@ -110,36 +108,32 @@ func setupTufRemote(version int, notfoundVersion string, t *testing.T) (*httptes
 					w.WriteHeader(http.StatusNotFound)
 					return
 				}
-				source := fmt.Sprintf("test/kolide/agent/linux/root.%d.json", version)
-				buff, err := test.Asset(source)
-				require.Nil(t, err)
+				source := fmt.Sprintf("testdata/kolide/agent/linux/root.%d.json", version)
+				buff := testAsset(t, source)
 				w.Write(buff)
 			},
 		},
 		mockHandler{
 			matcher: regexp.MustCompile(`timestamp\.json$`),
 			handler: func(w http.ResponseWriter, r *http.Request) {
-				source := fmt.Sprintf("test/kolide/agent/linux/timestamp.%d.json", version)
-				buff, err := test.Asset(source)
-				require.Nil(t, err)
+				source := fmt.Sprintf("testdata/kolide/agent/linux/timestamp.%d.json", version)
+				buff := testAsset(t, source)
 				w.Write(buff)
 			},
 		},
 		mockHandler{
 			matcher: regexp.MustCompile(`snapshot\.json$`),
 			handler: func(w http.ResponseWriter, r *http.Request) {
-				source := fmt.Sprintf("test/kolide/agent/linux/snapshot.%d.json", version)
-				buff, err := test.Asset(source)
-				require.Nil(t, err)
+				source := fmt.Sprintf("testdata/kolide/agent/linux/snapshot.%d.json", version)
+				buff := testAsset(t, source)
 				w.Write(buff)
 			},
 		},
 		mockHandler{
 			matcher: regexp.MustCompile(`targets\.json$`),
 			handler: func(w http.ResponseWriter, r *http.Request) {
-				source := fmt.Sprintf("test/kolide/agent/linux/targets.%d.json", version)
-				buff, err := test.Asset(source)
-				require.Nil(t, err)
+				source := fmt.Sprintf("testdata/kolide/agent/linux/targets.%d.json", version)
+				buff := testAsset(t, source)
 				w.Write(buff)
 			},
 		},
@@ -155,12 +149,10 @@ func setupTufRemote(version int, notfoundVersion string, t *testing.T) (*httptes
 	mirror := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.RequestURI {
 		case "/kolide/agent/linux/somedir/target.0":
-			buff, err := test.Asset(fmt.Sprintf("test/kolide/agent/linux/target.0.%d", version))
-			require.Nil(t, err)
+			buff := testAsset(t, fmt.Sprintf("testdata/kolide/agent/linux/target.0.%d", version))
 			w.Write(buff)
 		case "/kolide/agent/linux/somedir/target.1":
-			buff, err := test.Asset(fmt.Sprintf("test/kolide/agent/linux/target.1.%d", version))
-			require.Nil(t, err)
+			buff := testAsset(t, fmt.Sprintf("testdata/kolide/agent/linux/target.1.%d", version))
 			w.Write(buff)
 		default:
 			require.FailNow(t, "invalid uri", r.RequestURI)

@@ -19,20 +19,27 @@ import (
 	"time"
 
 	"github.com/WatchBeam/clock"
-	"github.com/kolide/updater/test"
+	"github.com/pkg/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+func testAsset(t *testing.T, path string) []byte {
+	data, err := ioutil.ReadFile(path)
+	require.NoError(t, err, path)
+	return data
+}
 
 type mockLocalRepoReader struct {
 	rootDir string
 }
 
 func (lr *mockLocalRepoReader) fetch(role string) (*Targets, error) {
-	buff, err := test.Asset(lr.rootDir + role + ".json")
+	buff, err := ioutil.ReadFile(lr.rootDir + role + ".json")
 	if err != nil {
-		return nil, err
+		return nil, errors.Wrap(err, "fetch role")
 	}
+
 	var targ Targets
 	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&targ)
 	if err != nil {
@@ -42,7 +49,7 @@ func (lr *mockLocalRepoReader) fetch(role string) (*Targets, error) {
 }
 
 func TestMockReader(t *testing.T) {
-	rdr := mockLocalRepoReader{"test/delegation/0/"}
+	rdr := mockLocalRepoReader{"testdata/delegation/0/"}
 	tt := []struct {
 		path          string
 		expectSuccess bool
@@ -67,7 +74,7 @@ func TestMockReader(t *testing.T) {
 }
 
 func TestPopulateLocalTargetsWithChildren(t *testing.T) {
-	rdr := mockLocalRepoReader{"test/delegation/0/"}
+	rdr := mockLocalRepoReader{"testdata/delegation/0/"}
 	root, err := targetTreeBuilder(&rdr)
 	require.Nil(t, err)
 	require.NotNil(t, root)
@@ -95,27 +102,21 @@ func setupValidationTest(t *testing.T, testRoot string) (*Root, *Snapshot, *Root
 	rootTarget, err := targetTreeBuilder(&rdr)
 	require.Nil(t, err)
 	var ss Snapshot
-	buff, err := test.Asset(path.Join(testRoot, string(roleSnapshot)+".json"))
-	require.Nil(t, err)
+	buff := testAsset(t, path.Join(testRoot, string(roleSnapshot)+".json"))
 	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&ss)
 	require.Nil(t, err)
 	var root Root
-	buff, err = test.Asset(path.Join(testRoot, string(roleRoot)+".json"))
-	require.Nil(t, err)
+	buff = testAsset(t, path.Join(testRoot, string(roleRoot)+".json"))
 	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&root)
 	require.Nil(t, err)
 	return &root, &ss, rootTarget
 }
 
 func TestTargetReadWithValidations(t *testing.T) {
-	testRootPath := "test/delegation/0"
+	testRootPath := "testdata/delegation/0"
 	svr := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		testDataPath := strings.Replace(strings.Replace(r.RequestURI, "/v2/", "", 1), "/_trust/tuf", "", 1)
-		buff, err := test.Asset(testDataPath)
-		if err != nil {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
+		buff := testAsset(t, testDataPath)
 		w.Write(buff)
 	}))
 	defer svr.Close()
@@ -306,19 +307,20 @@ func wontCrashOnNilAutoupdate(t *testing.T, settings *Settings, c *http.Client, 
 }
 
 const (
-	assetRoot  = "test/delegation"
-	mirrorRoot = "test/mirror"
+	assetRoot  = "testdata/delegation"
+	mirrorRoot = "testdata/mirror"
 	testGUN    = "kolide/launcher/darwin"
 )
 
 func createLocalTestRepo(t *testing.T, localRepoDir, assetParentDir string) {
-	paths, err := test.AssetDir(assetParentDir)
+	paths, err := ioutil.ReadDir(assetParentDir)
 	require.Nil(t, err)
-	for _, unprocessed := range paths {
+	for _, u := range paths {
+		fmt.Println(localRepoDir, assetParentDir, u.Name())
+		unprocessed := u.Name()
 		if regexp.MustCompile("\\.json$").MatchString(unprocessed) {
 			func() {
-				buff, err := test.Asset(path.Join(assetParentDir, unprocessed))
-				require.Nil(t, err)
+				buff := testAsset(t, path.Join(assetParentDir, unprocessed))
 				out, err := os.Create(filepath.Join(localRepoDir, unprocessed))
 				require.Nil(t, err)
 				defer out.Close()
@@ -348,19 +350,14 @@ func setupEndToEndTest(t *testing.T, remoteVersion, localVersion int) (*Settings
 			return
 		}
 		base := strings.Replace(r.RequestURI, fmt.Sprintf("/v2/%s/_trust/tuf/", testGUN), "", 1)
-		buff, err := test.Asset(path.Join(assetRoot, strconv.Itoa(remoteVersion), base))
-		if err != nil {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
+		buff := testAsset(t, path.Join(assetRoot, strconv.Itoa(remoteVersion), base))
 		_, err = w.Write(buff)
 		require.Nil(t, err)
 	}))
 	mirror := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		base := strings.Replace(r.RequestURI, "/"+testGUN, "", 1)
 		assetPath := path.Join(fmt.Sprintf("%s/%d", mirrorRoot, remoteVersion), base)
-		buff, err := test.Asset(assetPath)
-		require.Nil(t, err)
+		buff := testAsset(t, assetPath)
 		w.Write(buff)
 	}))
 	settings := &Settings{
