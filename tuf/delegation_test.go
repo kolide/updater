@@ -316,7 +316,6 @@ func createLocalTestRepo(t *testing.T, localRepoDir, assetParentDir string) {
 	paths, err := ioutil.ReadDir(assetParentDir)
 	require.Nil(t, err)
 	for _, u := range paths {
-		fmt.Println(localRepoDir, assetParentDir, u.Name())
 		unprocessed := u.Name()
 		if regexp.MustCompile("\\.json$").MatchString(unprocessed) {
 			func() {
@@ -350,7 +349,12 @@ func setupEndToEndTest(t *testing.T, remoteVersion, localVersion int) (*Settings
 			return
 		}
 		base := strings.Replace(r.RequestURI, fmt.Sprintf("/v2/%s/_trust/tuf/", testGUN), "", 1)
-		buff := testAsset(t, path.Join(assetRoot, strconv.Itoa(remoteVersion), base))
+		buff, err := ioutil.ReadFile(path.Join(assetRoot, strconv.Itoa(remoteVersion), base))
+		if os.IsNotExist(err) {
+			w.WriteHeader(http.StatusNotFound)
+		} else {
+			require.NoError(t, err)
+		}
 		_, err = w.Write(buff)
 		require.Nil(t, err)
 	}))
