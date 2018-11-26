@@ -56,7 +56,7 @@ func TestGetLocalRoles(t *testing.T) {
 
 func TestGetLocalTargets(t *testing.T) {
 	l := localRepo{}
-	trg, err := l.targets(&mockLocalRepoReader{"testdata/data/delegation/0/"})
+	trg, err := l.targets(&mockLocalRepoReader{"testdata/delegation/0/"})
 	require.Nil(t, err)
 	require.NotNil(t, trg)
 	assert.Equal(t, "2020-06-27T14:16:29.4823129-05:00", trg.Signed.Expires.Format(time.RFC3339Nano))
