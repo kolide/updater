@@ -8,16 +8,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kolide/updater/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func TestTargetsJson(t *testing.T) {
-	buff, err := test.Asset("test/data/targets.json")
-	require.Nil(t, err)
+	buff := testAsset(t, "testdata/data/targets.json")
 	var targets Targets
-	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&targets)
+	err := json.NewDecoder(bytes.NewBuffer(buff)).Decode(&targets)
 	require.Nil(t, err)
 	key, ok := targets.Signed.Delegations.Keys["894776e7a27799cd2e1f18f988360bd65b75d07488e16009db92102b7ef9b458"]
 	require.True(t, ok)
@@ -45,10 +43,9 @@ func TestTargetsJson(t *testing.T) {
 }
 
 func TestRootJson(t *testing.T) {
-	buff, err := test.Asset("test/data/root.json")
-	require.Nil(t, err)
+	buff := testAsset(t, "testdata/data/root.json")
 	var root Root
-	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&root)
+	err := json.NewDecoder(bytes.NewBuffer(buff)).Decode(&root)
 	require.Nil(t, err)
 	signed := root.Signed
 	assert.Equal(t, "2027-06-10T13:25:45.170347322-05:00", signed.Expires.Format(time.RFC3339Nano))
@@ -72,10 +69,9 @@ func TestRootJson(t *testing.T) {
 }
 
 func TestSnapshotJson(t *testing.T) {
-	buff, err := test.Asset("test/data/snapshot.json")
-	require.Nil(t, err)
+	buff := testAsset(t, "testdata/data/snapshot.json")
 	var snapshot Snapshot
-	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&snapshot)
+	err := json.NewDecoder(bytes.NewBuffer(buff)).Decode(&snapshot)
 	require.Nil(t, err)
 	require.Len(t, snapshot.Signatures, 1)
 	sig := snapshot.Signatures[0]
@@ -108,10 +104,9 @@ func TestSnapshotJson(t *testing.T) {
 }
 
 func TestTimestampJson(t *testing.T) {
-	buff, err := test.Asset("test/data/timestamp.json")
-	require.Nil(t, err)
+	buff := testAsset(t, "testdata/data/timestamp.json")
 	var ts Timestamp
-	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&ts)
+	err := json.NewDecoder(bytes.NewBuffer(buff)).Decode(&ts)
 	require.Nil(t, err)
 	require.Len(t, ts.Signatures, 1)
 	sig := ts.Signatures[0]

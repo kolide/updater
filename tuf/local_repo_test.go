@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kolide/updater/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,8 +20,7 @@ func setupLocalTests(t *testing.T) string {
 	roles := []role{roleRoot, roleTargets, roleSnapshot, roleTimestamp}
 	for _, r := range roles {
 		func() {
-			buff, err := test.Asset(fmt.Sprintf("test/data/%s.json", r))
-			require.Nil(t, err)
+			buff := testAsset(t, fmt.Sprintf("testdata/data/%s.json", r))
 			f, err := os.OpenFile(filepath.Join(baseDir, fmt.Sprintf("%s.json", r)), os.O_CREATE|os.O_WRONLY, 0644)
 			require.Nil(t, err)
 			defer f.Close()
@@ -58,7 +56,7 @@ func TestGetLocalRoles(t *testing.T) {
 
 func TestGetLocalTargets(t *testing.T) {
 	l := localRepo{}
-	trg, err := l.targets(&mockLocalRepoReader{"test/delegation/0/"})
+	trg, err := l.targets(&mockLocalRepoReader{"testdata/delegation/0/"})
 	require.Nil(t, err)
 	require.NotNil(t, trg)
 	assert.Equal(t, "2020-06-27T14:16:29.4823129-05:00", trg.Signed.Expires.Format(time.RFC3339Nano))

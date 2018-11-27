@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kolide/updater/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -65,8 +64,7 @@ func TestGetRemoteRole(t *testing.T) {
 				w.WriteHeader(http.StatusNotFound)
 				return
 			}
-			buff, err := test.Asset(fmt.Sprintf("test/data/%s.json", roleVal))
-			require.Nil(t, err)
+			buff := testAsset(t, fmt.Sprintf("testdata/data/%s.json", roleVal))
 			w.Write(buff)
 		}))
 		defer svr.Close()
@@ -108,8 +106,7 @@ func TestGetRemoteRole(t *testing.T) {
 
 func TestTheReadSizeLimitsAreEnforced(t *testing.T) {
 	svr := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		buff, err := test.Asset("test/data/snapshot.json")
-		require.Nil(t, err)
+		buff := testAsset(t, "testdata/data/snapshot.json")
 		w.Write(buff)
 	}))
 	defer svr.Close()
@@ -141,8 +138,7 @@ func TestTheReadSizeLimitsAreEnforced(t *testing.T) {
 func TestGetVersionRoot(t *testing.T) {
 	svr := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Regexp(t, regexp.MustCompile(`1.root.json$`), r.RequestURI)
-		buff, err := test.Asset("test/data/root.json")
-		require.Nil(t, err)
+		buff := testAsset(t, "testdata/data/root.json")
 		w.Write(buff)
 	}))
 	defer svr.Close()
@@ -171,8 +167,7 @@ func TestGetVersionRoot(t *testing.T) {
 func TestGetRoot(t *testing.T) {
 	svr := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
-		buff, err := test.Asset("test/data/root.json")
-		require.Nil(t, err)
+		buff := testAsset(t, "testdata/data/root.json")
 		w.Write(buff)
 	}))
 	defer svr.Close()
@@ -200,8 +195,7 @@ func TestGetRoot(t *testing.T) {
 
 func TestGetTimestamp(t *testing.T) {
 	svr := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		buff, err := test.Asset("test/data/timestamp.json")
-		require.Nil(t, err)
+		buff := testAsset(t, "testdata/data/timestamp.json")
 		w.Write(buff)
 	}))
 	defer svr.Close()
@@ -229,8 +223,7 @@ func TestGetTimestamp(t *testing.T) {
 
 func TestGetSnapshot(t *testing.T) {
 	svr := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		buff, err := test.Asset("test/data/snapshot.json")
-		require.Nil(t, err)
+		buff := testAsset(t, "testdata/data/snapshot.json")
 		w.Write(buff)
 	}))
 	defer svr.Close()
