@@ -155,8 +155,8 @@ func (fm FimMap) clone() FimMap {
 	return result
 }
 
-// RootTarget is the top level target it contains some bookeeping infomation
-// about targets
+// RootTarget is the top level target it contains some bookeeping
+// information about targets
 type RootTarget struct {
 	*Targets
 	targetLookup map[string]*Targets

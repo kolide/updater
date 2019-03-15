@@ -261,9 +261,10 @@ func (au *autoupdater) update(rm *repoMan) {
 	}
 }
 
-// workerLoop is the only method that has a reference to the tuf repository manager. It will
-// run as a seperate goroutine. Operations that interact with the tuf repository
-// will be executed in the sequence that jobs are recieved.
+// workerLoop is the only method that has a reference to the tuf
+// repository manager. It will run as a separate goroutine. Operations
+// that interact with the tuf repository will be executed in the
+// sequence that jobs are received.
 func workerLoop(
 	ticker <-chan time.Time,
 	quit <-chan struct{},

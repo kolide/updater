@@ -484,7 +484,7 @@ func verifySignatures(role marshaller, keys map[keyID]Key, sigs []Signature, thr
 			continue
 		}
 		if err != nil {
-			return errors.Wrap(err, "unexpected verfication error")
+			return errors.Wrap(err, "unexpected verification error")
 		}
 		// record successful sig verification
 		verified++
