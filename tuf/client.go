@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/WatchBeam/clock"
+	"github.com/go-kit/kit/log"
+	"github.com/go-kit/kit/log/level"
 	"github.com/pkg/errors"
 )
 
@@ -26,6 +28,8 @@ type Client struct {
 	maxResponseSize     int64
 	jobs                chan func(*repoMan)
 	wait                sync.WaitGroup
+	logger              log.Logger
+
 	// Default true, if true, and autoupdate is enabled check for updates on startup
 	// instead of waiting until check interval has elapsed.
 	loadOnStart     bool
@@ -53,6 +57,13 @@ func WithFrequency(duration time.Duration) Option {
 func WithBackupAge(age time.Duration) Option {
 	return func(c *Client) {
 		c.backupFileAge = age
+	}
+}
+
+// WithLogger configures a logger.
+func WithLogger(logger log.Logger) Option {
+	return func(c *Client) {
+		c.logger = log.With(logger, "library", "TUF")
 	}
 }
 
@@ -102,10 +113,17 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 		jobs:            make(chan func(*repoMan)),
 		loadOnStart:     true,
 		forceAutoUpdate: make(chan struct{}),
+		logger:          log.NewNopLogger(),
 	}
 	for _, opt := range opts {
 		opt(&client)
 	}
+
+	level.Debug(client.logger).Log(
+		"msg", "Client Started",
+		"GUN", settings.GUN,
+	)
+
 	notary, err := newNotaryRepo(settings, client.maxResponseSize, client.client)
 	if err != nil {
 		return nil, errors.Wrap(err, "creating notary client")
@@ -118,6 +136,7 @@ func NewClient(settings *Settings, opts ...Option) (*Client, error) {
 	if err != nil {
 		return nil, errors.New("creating local tuf role repo")
 	}
+
 	rm := newRepoMan(localRepo, notary, settings, notary.client, client.backupFileAge, client.clock)
 	var autoupdate *autoupdater
 	if client.watchedTarget != "" {
@@ -195,6 +214,11 @@ func (c *Client) Download(targetName string, destination io.Writer) error {
 	resultC := make(chan error)
 	c.jobs <- func(rm *repoMan) {
 
+		level.Debug(c.logger).Log(
+			"msg", "TUF downloading",
+			"targetName", targetName,
+			"destination", destination,
+		)
 		resultC <- rm.downloadTarget(targetName, destination)
 
 	}
