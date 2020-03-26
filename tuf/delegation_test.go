@@ -313,6 +313,43 @@ func wontCrashOnNilAutoupdate(t *testing.T, settings *Settings, c *http.Client, 
 	assert.NotNil(t, err)
 }
 
+// genCorruptDownloadTest returns a endToEndTest function based on a given corruptionType
+func genCorruptDownloadTest(breakage corruptionType, expectedError error) endToEndTest {
+	// work around `require` not having a ErrorIs method.
+	expectedError = errors.Wrap(expectedError, "verifying current target download")
+
+	return func(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
+		// wrap the Transport in the http client
+		c.Transport = corruptingRoundTripper{
+			t:        t,
+			proxied:  c.Transport,
+			targets:  regexp.MustCompile("edge/target$"),
+			breakage: breakage,
+		}
+
+		var (
+			path  string
+			cberr error
+		)
+
+		onUpdate := func(stagingPath string, err error) {
+			path = stagingPath
+			cberr = err
+		}
+
+		client, err := NewClient(
+			settings, WithHTTPClient(c),
+			withClock(k),
+			WithAutoUpdate("edge/target", stageDir, onUpdate),
+		)
+		require.NoError(t, err)
+		client.Stop()
+
+		require.Empty(t, path, "path should be empty on errors")
+		require.EqualError(t, cberr, expectedError.Error(), "errors match")
+	}
+}
+
 const (
 	assetRoot  = "testdata/delegation"
 	mirrorRoot = "testdata/mirror"
@@ -405,6 +442,8 @@ func TestEndToEnd(t *testing.T) {
 		{"nil autoupdate func", 1, 2, wontCrashOnNilAutoupdate},
 		{"autoupdate interval works", 1, 2, autoupdateDetectedChangeAfterInterval},
 		{"interleaved operations", 1, 2, interleavedOperations},
+		{"truncated download", 1, 2, genCorruptDownloadTest(replaceBodyCorruption, errLengthIncorrect)},
+		{"corrupt download", 1, 2, genCorruptDownloadTest(overwriteCorruption, errHashIncorrect)},
 	}
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
@@ -414,3 +453,66 @@ func TestEndToEnd(t *testing.T) {
 		})
 	}
 }
+
+// corruptingRoundTripper implements an http transport for testing
+// download failures. Can be used via something like:
+//
+//		c.Transport = corruptingRoundTripper{
+//			t:        t,
+//			proxied:  c.Transport,
+//			targets:  regexp.MustCompile("edge/target$"),
+//			breakage: breakage,
+//		}
+type corruptingRoundTripper struct {
+	t        *testing.T
+	proxied  http.RoundTripper
+	targets  *regexp.Regexp // corrupt things that match this
+	breakage corruptionType
+}
+
+func (crt corruptingRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	// Send the request, get the response (or the error)
+	res, err := crt.proxied.RoundTrip(req)
+
+	// Always pass along errors
+	if err != nil {
+		return res, err
+	}
+
+	// If this isn't our target, pass it along
+	if crt.targets == nil || !crt.targets.MatchString(req.URL.String()) {
+		return res, err
+	}
+
+	// We always need to close the old body, may as well defer it
+	defer res.Body.Close()
+
+	switch crt.breakage {
+	case emptyBodyCorruption:
+		res.Body = ioutil.NopCloser(strings.NewReader(""))
+	case replaceBodyCorruption:
+		res.Body = ioutil.NopCloser(strings.NewReader("corrupted"))
+	case overwriteCorruption:
+		length, err := io.Copy(ioutil.Discard, res.Body)
+		require.NoError(crt.t, err, "determining old body length")
+
+		newBody := make([]byte, length)
+		if _, err := rand.Read(newBody); err != nil {
+			require.NoError(crt.t, err, "random generation")
+		}
+		res.Body = ioutil.NopCloser(bytes.NewReader(newBody))
+	default:
+		require.NoError(crt.t, errors.New("misconfigured"), "unknown error type")
+	}
+
+	return res, nil
+}
+
+// corruptionType is is shorthand for the type of corruption to apply
+type corruptionType int
+
+const (
+	emptyBodyCorruption corruptionType = iota
+	replaceBodyCorruption
+	overwriteCorruption
+)
