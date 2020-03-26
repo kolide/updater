@@ -76,7 +76,7 @@ func TestMockReader(t *testing.T) {
 func TestPopulateLocalTargetsWithChildren(t *testing.T) {
 	rdr := mockLocalRepoReader{"testdata/delegation/0/"}
 	root, err := targetTreeBuilder(&rdr)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.NotNil(t, root)
 	assert.Len(t, root.targetPrecedence, 4)
 	tt := []struct {
@@ -100,15 +100,15 @@ func TestPopulateLocalTargetsWithChildren(t *testing.T) {
 func setupValidationTest(t *testing.T, testRoot string) (*Root, *Snapshot, *RootTarget) {
 	rdr := mockLocalRepoReader{testRoot + "/"}
 	rootTarget, err := targetTreeBuilder(&rdr)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	var ss Snapshot
 	buff := testAsset(t, path.Join(testRoot, string(roleSnapshot)+".json"))
 	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&ss)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	var root Root
 	buff = testAsset(t, path.Join(testRoot, string(roleRoot)+".json"))
 	err = json.NewDecoder(bytes.NewBuffer(buff)).Decode(&root)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	return &root, &ss, rootTarget
 }
 
@@ -134,42 +134,42 @@ func TestTargetReadWithValidations(t *testing.T) {
 		clock:           clock.NewMockClock(testTime),
 	}
 	rtr, err := newNotaryTargetFetcher(&rrs)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.NotNil(t, rtr)
 	var notary notaryRepo
 	remoteRootTarget, err := notary.targets(rtr)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	require.NotNil(t, remoteRootTarget)
 }
 
 func noChangeDetected(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
 	client, err := NewClient(settings, WithHTTPClient(c), withClock(k))
-	require.Nil(t, err)
+	require.NoError(t, err)
 	_, latest, err := client.Update()
-	require.Nil(t, err)
+	require.NoError(t, err)
 	assert.True(t, latest)
 }
 
 func existingPathChanged(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
 	client, err := NewClient(settings, WithHTTPClient(c), withClock(k))
-	require.Nil(t, err)
+	require.NoError(t, err)
 	fims, latest, err := client.Update()
-	require.Nil(t, err)
-	require.Nil(t, err)
+	require.NoError(t, err)
+	require.NoError(t, err)
 	assert.False(t, latest)
 	_, ok := fims["edge/target"]
 	require.True(t, ok)
 	download := filepath.Join(stageDir, "target")
 	out, err := os.Create(download)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	defer out.Close()
 	err = client.Download("edge/target", out)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	out.Close()
 	fi, err := os.Stat(download)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	fims, err = client.getFIMMap()
-	require.Nil(t, err)
+	require.NoError(t, err)
 	fim, ok := fims["edge/target"]
 	require.True(t, ok)
 	assert.Equal(t, fi.Size(), fim.Length)
@@ -179,15 +179,15 @@ func existingPathChanged(t *testing.T, settings *Settings, c *http.Client, stage
 // trigger change
 func nonprecedentPathChange(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
 	client, err := NewClient(settings, WithHTTPClient(c), withClock(k))
-	require.Nil(t, err)
+	require.NoError(t, err)
 	_, latest, err := client.Update()
-	require.Nil(t, err)
+	require.NoError(t, err)
 	// Path changed, but not by the highest precedence delegate, so we have the
 	// latest.
 	require.True(t, latest)
 	download := filepath.Join(stageDir, "target")
 	out, err := os.Create(download)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	defer out.Close()
 	err = client.Download("latest/target", out)
 	// lower precedence role uploaded to mirror, but should cause error
@@ -211,7 +211,7 @@ func autoupdateDetectedChange(t *testing.T, settings *Settings, c *http.Client, 
 		withClock(k),
 		WithAutoUpdate("edge/target", stageDir, onUpdate),
 	)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	client.Stop()
 
 	// there should be no problems with concurrent access here because both
@@ -242,7 +242,7 @@ func autoupdateDetectedChangeAfterInterval(t *testing.T, settings *Settings, c *
 		loadOnStart(false),
 		WithAutoUpdate("edge/target", stageDir, onUpdate),
 	)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	client.Stop()
 	// verify that it didn't run
 	assert.False(t, called)
@@ -253,7 +253,7 @@ func autoupdateDetectedChangeAfterInterval(t *testing.T, settings *Settings, c *
 		loadOnStart(false),
 		WithAutoUpdate("edge/target", stageDir, onUpdate),
 	)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	// advance clock
 	k.AddTime(defaultCheckFrequency + time.Second)
 	// we need to pause to let delegate finish
@@ -285,11 +285,11 @@ func interleavedOperations(t *testing.T, settings *Settings, c *http.Client, sta
 			WithFrequency(time.Duration((gen.Int()%500))*time.Microsecond),
 			WithAutoUpdate("edge/target", stageDir, onUpdate(gen)),
 		)
-		require.Nil(t, err)
+		require.NoError(t, err)
 		_, _, err = client.Update()
-		require.Nil(t, err)
+		require.NoError(t, err)
 		wr, err := ioutil.TempFile("", "")
-		require.Nil(t, err)
+		require.NoError(t, err)
 		err = client.Download("edge/target", wr)
 		os.Remove(wr.Name())
 		assert.Nil(t, err)
@@ -314,24 +314,24 @@ const (
 
 func createLocalTestRepo(t *testing.T, localRepoDir, assetParentDir string) {
 	paths, err := ioutil.ReadDir(assetParentDir)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	for _, u := range paths {
 		unprocessed := u.Name()
 		if regexp.MustCompile("\\.json$").MatchString(unprocessed) {
 			func() {
 				buff := testAsset(t, path.Join(assetParentDir, unprocessed))
 				out, err := os.Create(filepath.Join(localRepoDir, unprocessed))
-				require.Nil(t, err)
+				require.NoError(t, err)
 				defer out.Close()
 				_, err = io.Copy(out, bytes.NewBuffer(buff))
-				require.Nil(t, err)
+				require.NoError(t, err)
 			}()
 		} else {
 			// this is a directory create it and recurse into it
 			local := filepath.Join(localRepoDir, unprocessed)
 			asset := path.Join(assetParentDir, unprocessed)
 			err = os.MkdirAll(local, 0755)
-			require.Nil(t, err)
+			require.NoError(t, err)
 			createLocalTestRepo(t, local, asset)
 		}
 	}
@@ -339,9 +339,9 @@ func createLocalTestRepo(t *testing.T, localRepoDir, assetParentDir string) {
 
 func setupEndToEndTest(t *testing.T, remoteVersion, localVersion int) (*Settings, string, func()) {
 	stagingDir, err := ioutil.TempDir("", "staging")
-	require.Nil(t, err)
+	require.NoError(t, err)
 	localRepoDir, err := ioutil.TempDir("", "local")
-	require.Nil(t, err)
+	require.NoError(t, err)
 	createLocalTestRepo(t, localRepoDir, path.Join(assetRoot, strconv.Itoa(localVersion)))
 	notary := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.RequestURI == "/_notary_server/health" {
@@ -356,7 +356,7 @@ func setupEndToEndTest(t *testing.T, remoteVersion, localVersion int) (*Settings
 			require.NoError(t, err)
 		}
 		_, err = w.Write(buff)
-		require.Nil(t, err)
+		require.NoError(t, err)
 	}))
 	mirror := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		base := strings.Replace(r.RequestURI, "/"+testGUN, "", 1)
