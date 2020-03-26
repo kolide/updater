@@ -24,6 +24,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type endToEndTest func(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock)
+
 func testAsset(t *testing.T, path string) []byte {
 	data, err := ioutil.ReadFile(path)
 	require.NoError(t, err, path)
@@ -389,13 +391,12 @@ func TestEndToEnd(t *testing.T) {
 
 	testTime, _ := time.Parse(time.UnixDate, "Sat Jul 1 18:00:00 CST 2017")
 	mockClock := clock.NewMockClock(testTime)
-	client := testHTTPClient()
 
 	tt := []struct {
 		name              string
 		localRepoVersion  int
 		remoteRepoVersion int
-		testCase          func(t *testing.T, settings *Settings, client *http.Client, stageDir string, c *clock.MockClock)
+		testCase          endToEndTest
 	}{
 		{"no change detected", 0, 1, noChangeDetected},
 		{"existing path changed", 1, 2, existingPathChanged},
@@ -409,7 +410,7 @@ func TestEndToEnd(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			settings, stagingDir, cleanup := setupEndToEndTest(t, tc.remoteRepoVersion, tc.localRepoVersion)
 			defer cleanup()
-			tc.testCase(t, settings, client, stagingDir, mockClock)
+			tc.testCase(t, settings, testHTTPClient(), stagingDir, mockClock)
 		})
 	}
 }
