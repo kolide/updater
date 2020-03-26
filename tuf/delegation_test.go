@@ -49,6 +49,8 @@ func (lr *mockLocalRepoReader) fetch(role string) (*Targets, error) {
 }
 
 func TestMockReader(t *testing.T) {
+	t.Parallel()
+
 	rdr := mockLocalRepoReader{"testdata/delegation/0/"}
 	tt := []struct {
 		path          string
@@ -74,6 +76,8 @@ func TestMockReader(t *testing.T) {
 }
 
 func TestPopulateLocalTargetsWithChildren(t *testing.T) {
+	t.Parallel()
+
 	rdr := mockLocalRepoReader{"testdata/delegation/0/"}
 	root, err := targetTreeBuilder(&rdr)
 	require.NoError(t, err)
@@ -113,6 +117,8 @@ func setupValidationTest(t *testing.T, testRoot string) (*Root, *Snapshot, *Root
 }
 
 func TestTargetReadWithValidations(t *testing.T) {
+	t.Parallel()
+
 	testRootPath := "testdata/delegation/0"
 	svr := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		testDataPath := strings.Replace(strings.Replace(r.RequestURI, "/v2/", "", 1), "/_trust/tuf", "", 1)
@@ -220,7 +226,6 @@ func autoupdateDetectedChange(t *testing.T, settings *Settings, c *http.Client, 
 	assert.Nil(t, cberr)
 	_, err = os.Stat(path)
 	assert.Nil(t, err)
-
 }
 
 func autoupdateDetectedChangeAfterInterval(t *testing.T, settings *Settings, c *http.Client, stageDir string, k *clock.MockClock) {
@@ -380,6 +385,8 @@ func setupEndToEndTest(t *testing.T, remoteVersion, localVersion int) (*Settings
 }
 
 func TestEndToEnd(t *testing.T) {
+	t.Parallel()
+
 	testTime, _ := time.Parse(time.UnixDate, "Sat Jul 1 18:00:00 CST 2017")
 	mockClock := clock.NewMockClock(testTime)
 	client := testHTTPClient()
