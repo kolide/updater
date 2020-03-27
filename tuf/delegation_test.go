@@ -444,6 +444,8 @@ func TestEndToEnd(t *testing.T) {
 		{"interleaved operations", 1, 2, interleavedOperations},
 		{"truncated download", 1, 2, genCorruptDownloadTest(replaceBodyCorruption, errLengthIncorrect)},
 		{"corrupt download", 1, 2, genCorruptDownloadTest(overwriteCorruption, errHashIncorrect)},
+		{"empty download", 1, 2, genCorruptDownloadTest(emptyBodyCorruption, errLengthIncorrect)},
+
 	}
 	for _, tc := range tt {
 		t.Run(tc.name, func(t *testing.T) {
