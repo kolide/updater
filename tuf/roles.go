@@ -8,11 +8,9 @@ import (
 	"encoding/base64"
 	"hash"
 	"io"
-	"io/ioutil"
 	"time"
 
 	cjson "github.com/docker/go/canonical/json"
-	"github.com/pkg/errors"
 )
 
 type keyID string
@@ -205,47 +203,6 @@ func (sig *Signature) base64Decoded() ([]byte, error) {
 	return base64.StdEncoding.DecodeString(sig.Value)
 }
 
-// FileIntegrityMeta hashes and length of a file based resource to help ensure
-// the binary footprint of the file hasn't been tampered with
-type FileIntegrityMeta struct {
-	Hashes map[hashingMethod]string `json:"hashes"`
-	Length int64                    `json:"length"`
-}
-
-func newFileIntegrityMeta() *FileIntegrityMeta {
-	return &FileIntegrityMeta{
-		Hashes: make(map[hashingMethod]string),
-	}
-}
-
-func (f FileIntegrityMeta) clone() *FileIntegrityMeta {
-	h := make(map[hashingMethod]string)
-	for k, v := range f.Hashes {
-		h[k] = v
-	}
-	return &FileIntegrityMeta{h, f.Length}
-}
-
-// Equal is deep comparison of two FileIntegrityMeta
-func (f FileIntegrityMeta) Equal(fim FileIntegrityMeta) bool {
-	if f.Length != fim.Length {
-		return false
-	}
-	if len(f.Hashes) != len(fim.Hashes) {
-		return false
-	}
-	for algo, hash := range f.Hashes {
-		h, ok := fim.Hashes[algo]
-		if !ok {
-			return false
-		}
-		if h != hash {
-			return false
-		}
-	}
-	return true
-}
-
 type hashInfo struct {
 	h     hash.Hash
 	valid []byte
@@ -282,37 +239,6 @@ func getHasher(algoType hashingMethod) (hash.Hash, error) {
 		return nil, errUnsupportedHash
 	}
 	return hashFunc, nil
-}
-
-// File hash and length validation per TUF 5.5.2
-func (fim FileIntegrityMeta) verify(rdr io.Reader) error {
-	var hashes []hashInfo
-	for algo, expectedHash := range fim.Hashes {
-		var hashFunc hash.Hash
-		valid, err := base64.StdEncoding.DecodeString(expectedHash)
-		if err != nil {
-			return errors.New("invalid hash in verify")
-		}
-		hashFunc, err = getHasher(algo)
-		if err != nil {
-			return err
-		}
-		rdr = io.TeeReader(rdr, hashFunc)
-		hashes = append(hashes, hashInfo{hashFunc, valid})
-	}
-	length, err := io.Copy(ioutil.Discard, rdr)
-	if err != nil {
-		return err
-	}
-	if length != fim.Length {
-		return errLengthIncorrect
-	}
-	for _, h := range hashes {
-		if subtle.ConstantTimeCompare(h.valid, h.h.Sum(nil)) != 1 {
-			return errHashIncorrect
-		}
-	}
-	return nil
 }
 
 // Delegations contain signing information for targets hosted by external principals. Delegations
